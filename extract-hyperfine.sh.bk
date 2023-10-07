@@ -1,0 +1,61 @@
+#!/bin/bash
+
+if [ -z "$1" ] ; then
+                echo -e "\033[31mERROR:\033[0m Missing file operand! Please identify the name of Directory"
+                        exit 1
+fi
+
+
+CURRENT_DIR=`pwd`
+DIRECTORY_LIST=`ls -d */`
+HYPERFINE_DIR=$1
+ISO_HYPERFINE_OUTPUT_FILE="iso_A.csv"
+AISO_HYPERFINE_OUTPUT_FILE="a-iso_A.csv"
+
+if [ -a $ISO_HYPERFINE_OUTPUT_FILE ] ; then
+	rm $ISO_HYPERFINE_OUTPUT_FILE
+fi
+
+if [ -a $AISO_HYPERFINE_OUTPUT_FILE ] ; then
+        rm $AISO_HYPERFINE_OUTPUT_FILE
+fi
+
+
+for i in $DIRECTORY_LIST ; do
+        cd $i
+	if [ -d $HYPERFINE_DIR ] ; then
+        	cd $HYPERFINE_DIR
+		echo $i >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+		echo $i >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+		LASTEST_OUTPUT_FILE=`ls -lhtr *.out | tail -1 | awk -F " " '{print $NF}'`
+		echo $LASTEST_OUTPUT_FILE >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+		echo $LASTEST_OUTPUT_FILE >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+        	grep -EA 1 "^\s*1 B   11" $LASTEST_OUTPUT_FILE  >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+		grep -EA 4 "^\s*1 B   11" $LASTEST_OUTPUT_FILE >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+	fi
+        cd $CURRENT_DIR
+done
+
+echo -e "=========================================\n" >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+echo -e "=========================================\n" >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+echo "Extracted value" >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+echo -e "-----------------------------------------" >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+echo "Extracted value" >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+echo -e "-----------------------------------------" >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+echo -e "Dir\tIso_A" >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+echo -e "Dir\tA_iso_xy\tA_iso_yz\tA_iso_xz" >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+
+for i in $DIRECTORY_LIST ; do
+	cd $i
+	if [ -d $HYPERFINE_DIR ] ; then
+		cd $HYPERFINE_DIR
+		LASTEST_OUTPUT_FILE=`ls -lhtr *.out | tail -1 | awk -F " " '{print $NF}'`
+		Iso=`grep -E "^\s*1 B   11" $LASTEST_OUTPUT_FILE`
+       		echo $i $Iso >> $CURRENT_DIR/$ISO_HYPERFINE_OUTPUT_FILE
+		A_iso_xy=`grep -EA 4 "^\s*1 B   11" $LASTEST_OUTPUT_FILE | tail -2 | head -1 | awk -F " " '{print $3}'`  
+        	A_iso_yz=`grep -EA 4 "^\s*1 B   11" $LASTEST_OUTPUT_FILE | tail -2 | head -1 | awk -F " " '{print $NF}'` 
+        	A_iso_xz=`grep -EA 4 "^\s*1 B   11" $LASTEST_OUTPUT_FILE | tail -2 | tail -1 | awk -F " " '{print $1}'`
+        	echo $i ${A_iso_xy} ${A_iso_yz} ${A_iso_xz} >> $CURRENT_DIR/$AISO_HYPERFINE_OUTPUT_FILE
+	fi
+	cd $CURRENT_DIR
+done
