@@ -68,6 +68,13 @@ function Multiwfn_run (){
         end_marker="&END MOTION"
         sed -i 's/\(RUN_TYPE\).*/\1 CELL_OPT/' "$1"
         sed -i '/&END FORCE_EVAL/i STRESS_TENSOR ANALYTICAL #Compute full stress tensor analytically' "$1"
+    elif [ "$function_choice" -eq 5 ]; then
+        Multiwfn_function_choice="-1\n6\n10\n2"
+        section="MD"
+        start_marker="&MOTION"
+        end_marker="&END MOTION"
+        sed -i 's/\(RUN_TYPE\).*/\1 MD/' "$1"
+        sed -i '/STRESS_TENSOR/d' "$1"
     fi
 
 	# Run Multiwfn 
@@ -85,11 +92,12 @@ echo "1. OT"
 echo "2. DIAGONALIZATION"
 echo "3. GEO_OPT"
 echo "4. CELL_OPT"
+echo "5. MD"
 
 read function_choice
 
 case $function_choice in
-	1 | 2 | 3 | 4)
+	1 | 2 | 3 | 4 | 5)
 		Multiwfn_run $1
 		;;
 	*)
