@@ -44,38 +44,48 @@ function extract_and_replace_section {
 function Multiwfn_run (){
     local Multiwfn_function_choice section start_marker end_marker
 
-    if [ "$function_choice" -eq 1 ]; then
-        Multiwfn_function_choice="4"
-        section="SCF"
-        start_marker="&SCF"
-        end_marker="&END SCF"
-    elif [ "$function_choice" -eq 2 ]; then
-        Multiwfn_function_choice='\n'
-        section="SCF"
-        start_marker="&SCF"
-        end_marker="&END SCF"
-    elif [ "$function_choice" -eq 3 ]; then
-        Multiwfn_function_choice="-1\n3"
-        section="OPT"
-        start_marker="&MOTION"
-        end_marker="&END MOTION"
-        sed -i 's/\(RUN_TYPE\).*/\1 GEO_OPT/' "$1"
-        sed -i '/STRESS_TENSOR/d' "$1"
-    elif [ "$function_choice" -eq 4 ]; then
-        Multiwfn_function_choice="-1\n4"
-        section="OPT"
-        start_marker="&MOTION"
-        end_marker="&END MOTION"
-        sed -i 's/\(RUN_TYPE\).*/\1 CELL_OPT/' "$1"
-        sed -i '/&END FORCE_EVAL/i STRESS_TENSOR ANALYTICAL #Compute full stress tensor analytically' "$1"
-    elif [ "$function_choice" -eq 5 ]; then
-        Multiwfn_function_choice="-1\n6\n10\n2"
-        section="MD"
-        start_marker="&MOTION"
-        end_marker="&END MOTION"
-        sed -i 's/\(RUN_TYPE\).*/\1 MD/' "$1"
-        sed -i '/STRESS_TENSOR/d' "$1"
-    fi
+    case "$function_choice" in
+        1)
+            Multiwfn_function_choice="4"
+            section="SCF"
+            start_marker="&SCF"
+            end_marker="&END SCF"
+            ;;
+        2)
+            Multiwfn_function_choice=$'\n'
+            section="SCF"
+            start_marker="&SCF"
+            end_marker="&END SCF"
+            ;;
+        3)
+            Multiwfn_function_choice="-1\n3"
+            section="OPT"
+            start_marker="&MOTION"
+            end_marker="&END MOTION"
+            sed -i 's/\(RUN_TYPE\).*/\1 GEO_OPT/' "$1"
+            sed -i '/STRESS_TENSOR/d' "$1"
+            ;;
+        4)
+            Multiwfn_function_choice="-1\n4"
+            section="OPT"
+            start_marker="&MOTION"
+            end_marker="&END MOTION"
+            sed -i 's/\(RUN_TYPE\).*/\1 CELL_OPT/' "$1"
+            sed -i '/&END FORCE_EVAL/i STRESS_TENSOR ANALYTICAL #Compute full stress tensor analytically' "$1"
+            ;;
+        5)
+            Multiwfn_function_choice="-1\n6\n10\n2"
+            section="MD"
+            start_marker="&MOTION"
+            end_marker="&END MOTION"
+            sed -i 's/\(RUN_TYPE\).*/\1 MD/' "$1"
+            sed -i '/STRESS_TENSOR/d' "$1"
+            ;;
+        *)
+            echo "Invalid choice"
+            ;;
+    esac
+
 
 	# Run Multiwfn 
 	echo -e "$1\ncp2k\ntemp.inp\n$Multiwfn_function_choice\n0\nq" | Multiwfn 1>>/dev/null
@@ -96,11 +106,4 @@ echo "5. MD"
 
 read function_choice
 
-case $function_choice in
-	1 | 2 | 3 | 4 | 5)
-		Multiwfn_run $1
-		;;
-	*)
-		echo "Invalid option selected."
-		;;
-esac
+Multiwfn_run $1
