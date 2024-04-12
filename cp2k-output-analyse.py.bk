@@ -18,7 +18,7 @@ print('''
 *** The format of the script: ***
 cp2k-output-analyse.py OUTPUT_FILE.out
 ***************************************
-''')
+      ''')
 
 try:
     input_file = sys.argv[1]
@@ -37,6 +37,7 @@ plot_file = output_file.split('.out')[0]  + "__data.csv"
 with open(output_file, 'r') as f:
     with open(plot_file,'w') as o:
         lines = f.readlines()
+        num_lines = len(lines) # the number of lines in the file
         MAX_SCF = 50
         OUTER_SCF_CHECK = "FALSE"
         SCF_OPTIMIZER = "DIAGONALIZATION"
@@ -66,8 +67,12 @@ with open(output_file, 'r') as f:
                 GEO_OPTIMIZER = lines[line_number].split('***')[1].strip()
             elif " OT " in line:
                 SCF_OPTIMIZER = "OT"
+            elif "outer SCF loop FAILED to converge" in line:
+                SCF_NUMBER_OT = line.split()[-2]
+                SCF_NUMBER = "!" + SCF_NUMBER_OT
             elif "SCF run NOT converged ***" in line:
-                SCF_NUMBER = "!" + MAX_SCF
+                if OUTER_SCF_CHECK == "FALSE":
+                    SCF_NUMBER = "!" + MAX_SCF
             elif "*** SCF run converged" in line:
                 SCF_NUMBER = line.split()[-3]
             elif "outer SCF loop converged in" in line:
@@ -138,6 +143,20 @@ with open(output_file, 'r') as f:
                     o.write("%11s %15s %16s %17s"%("N/A", "N/A", "N/A", "N/A"))
                     o.write("%18s"%(USEDTIME))
                 o.write("\n")
+            elif "OPTIMIZATION COMPLETED" in line:
+                CYCLE_NUMBER = line.split('=')[-1].split('-')[0].strip()
+                top_line_number = lines.index(line)
+                bottom_line_number = num_lines
+                for contents in lines[top_line_number:bottom_line_number]:
+                    if "ENERGY" in contents:
+                        TOTAL_ENERGY = contents.split(':')[-1].strip()
+                        TOTAL_ENERGY = float(TOTAL_ENERGY)
+                        TOTAL_ENERGY = "%.10f" % TOTAL_ENERGY
+                
+                o.write("%9s %17s %7s"%("Final",str(TOTAL_ENERGY),SCF_NUMBER))
+                o.write("%11s %15s %16s %17s"%("N/A", "N/A", "N/A", "N/A"))
+                o.write("%17s"%("N/A"))
+                o.write("\n")
         TOTAL_TIME = str(datetime.timedelta(seconds=float(TOTAL_TIME)))
         o.write("# Done!")
         o.close()
@@ -166,7 +185,7 @@ plot_choice = input()
 if plot_choice == "y":
     import matplotlib.pyplot as plt
     from matplotlib.pyplot import MultipleLocator
-    
+
     f = open(plot_file, 'r')
     x = []
     y = []
@@ -178,7 +197,7 @@ if plot_choice == "y":
         elif x_value == "xx":
             x.append(int(lines.split()[1]))
             y.append(float(lines.split()[2]))
-    
+
     plt.scatter(x, y)
     plt.xlabel("Cycle Number")
     plt.ylabel("Energy (a.u.)")

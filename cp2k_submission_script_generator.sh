@@ -48,11 +48,11 @@ fi
 sed -i "s/JOBNAME=\"[^)]*\"/JOBNAME=\"${1%.*}\"/" $SUB_SCRIPT
 sed -i "s/OUT_NAME=\"[^)]*\"/OUT_NAME=\"${1%.*}\"/" $SUB_SCRIPT
 
-echo -e "Which CP2K version are you using?\n1. 2023.1\n2. 2024.1"
-read CP2K_VERSION_CHOICE
-if [ $CP2K_VERSION_CHOICE -eq '2' ] ; then 
-    cp2k_version_choice
-fi
+# echo -e "Which CP2K version are you using?\n1. 2023.1\n2. 2024.1"
+# read CP2K_VERSION_CHOICE
+# if [ $CP2K_VERSION_CHOICE -eq '2' ] ; then 
+#     cp2k_version_choice
+# fi
 
 echo -e "Which text editor are you using?\n1 vi/vim\n2 nano"
 read EDITOR_CHOICE
