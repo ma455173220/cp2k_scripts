@@ -38,6 +38,10 @@ def process_output_file(output_file):
         for line in lines:
             if "PROGRAM STARTED AT" in line:
                 starttime = line.split('AT')[-1].strip()
+            elif "PROGRAM ENDED AT" in line:
+                endtime = line.split('AT')[-1].strip()
+                TOTAL_TIME = (datetime.datetime.strptime(endtime, "%Y-%m-%d %H:%M:%S.%f") \
+                        - datetime.datetime.strptime(starttime, "%Y-%m-%d %H:%M:%S.%f")).total_seconds()
             elif "Run type" in line:
                 RUN_TYPE = line.split()[-1]
                 if RUN_TYPE == "GEO_OPT":
@@ -105,6 +109,7 @@ def process_output_file(output_file):
                         USEDTIME = contents.split('=')[-1].strip()
                         USEDTIME = str(round(float(USEDTIME)))
                         TOTAL_TIME += float(USEDTIME)
+                        print(TOTAL_TIME)
                 try:
                     ENERGY_CHANGE = ENERGY_CHANGE
                     if ENERGY_CHANGE == "NO":
@@ -157,7 +162,7 @@ def process_output_file(output_file):
                 o.write(" |%7s    |%8s    |%8s     |%8s      |%8s    " % ("N/A", "N/A", "N/A", "N/A", "N/A"))
                 o.write(" |%6s" % ("N/A"))
                 o.write("\n")
-        TOTAL_TIME = str(datetime.timedelta(seconds=float(TOTAL_TIME)))
+        TOTAL_TIME = str(datetime.timedelta(seconds=round(float(TOTAL_TIME))))
         o.write("# Done!")
 
     with open(plot_file, 'r+') as f:
