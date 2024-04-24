@@ -109,7 +109,6 @@ def process_output_file(output_file):
                         USEDTIME = contents.split('=')[-1].strip()
                         USEDTIME = str(round(float(USEDTIME)))
                         TOTAL_TIME += float(USEDTIME)
-                        print(TOTAL_TIME)
                 try:
                     ENERGY_CHANGE = ENERGY_CHANGE
                     if ENERGY_CHANGE == "NO":

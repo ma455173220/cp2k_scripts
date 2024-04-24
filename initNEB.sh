@@ -28,5 +28,5 @@ echo "processing $1-pos-Replica_nr_${idx}-1.xyz..."
 head -$nline "$1-pos-Replica_nr_${idx}-1.xyz" >> $1_inittraj.xyz
 done
 echo "Trajectory has been exported to $1_inittraj.xyz"
-awk '/E =/ {i=i+1; printf "%s %16.8f\n", i, $6}' NEB_inittraj.xyz > $1_initene.txt
+awk '/E =/ {i=i+1; printf "%s %16.8f\n", i, $6}' $1_inittraj.xyz > $1_initene.txt
 echo "Energies have been exported to $1_initene.txt"
