@@ -3,7 +3,7 @@
 ##Input parameters
 input_file=cp2k.inp   #Template file of present system      
 output_file=cp2k.out                                        
-run_script=NBT                                              
+run_script=conv_test
 plot_file="REL_CUTOFF.txt"                                                            
 
 cutoff=800   #REL_CUTOFF parameter (Ry)                  
