@@ -7,7 +7,7 @@ restart_file="cp2k-1.restart"
 run_script=NBT                                              
 plot_file="U.txt"                                                            
 
-U_values=$(seq 0.5 0.5 7) #Considered U range and step
+U_values=$(seq 1 0.5 6) #Considered U range and step
 
 prepare_input_files() {
     for ii in $U_values ; do
@@ -15,11 +15,19 @@ prepare_input_files() {
         if [ ! -d $work_dir ] ; then
             mkdir $work_dir
         else 
-            rm -r $work_dir/*
+            echo "Directory '$work_dir' already exists. Do you want to delete existing files? (y/n)"
+            read response
+            if [ "$response" == "Y" ] || [ "$response" == "y" ]; then
+                rm -r $work_dir/*
+            else
+                echo "Skipping deletion of existing files in '$work_dir'."
+                continue  
+            fi
         fi
-        sed -e "s/LT_U/${ii}/g" \
-            $input_file > $work_dir/$input_file
+
+        sed -e "s/LT_U/${ii}/g" $input_file > $work_dir/$input_file
         cp $run_script $work_dir
+
     done
 }
 
