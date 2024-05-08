@@ -181,6 +181,7 @@ def process_output_file(output_file):
 
 
 def plot_cycle_vs_energy(plot_file):
+    import math
     import re
     import matplotlib.pyplot as plt
     from matplotlib.pyplot import MultipleLocator
@@ -203,16 +204,7 @@ def plot_cycle_vs_energy(plot_file):
         plt.scatter(x, y)
         plt.xlabel("Step")
         plt.ylabel("Energy (a.u.)")
-        if len(x) <= 50:
-            x_spacing = 5
-        elif len(x) <= 100:
-            x_spacing = 10
-        elif len(x) <= 150:
-            x_spacing = 15
-        elif len(x) <= 200:
-            x_spacing = 20
-        else:
-            x_spacing = 50
+        x_spacing = 5 * math.ceil(len(x) / 50)  # Adjust 50 to change spacing criteria
         x_major_locator = MultipleLocator(x_spacing)
         ax = plt.gca()
         ax.xaxis.set_major_locator(x_major_locator)
