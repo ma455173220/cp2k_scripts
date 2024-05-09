@@ -88,6 +88,8 @@ elif [ "$check_RUNTYPE_restart" == "MD" ] && [ "$check_RUNTYPE_target" != "MD" ]
 elif [ "$check_RUNTYPE_restart" != "MD" ] && [ "$check_RUNTYPE_target" == "MD" ]; then
 	extract_and_replace_section "CELL" "&CELL" "&END CELL" $1 $2
     extract_and_replace_section "COORD" "&COORD" "&END COORD" $1 $2
+elif [ "$check_RUNTYPE_restart" == "BAND" ] && [ "$check_RUNTYPE_target" == "BAND" ]; then
+    extract_and_replace_section "BAND" "&BAND" "&END BAND" $1 $2
 elif [ "$check_RUNTYPE_restart" != "MD" ] && [ "$check_RUNTYPE_target" == "BAND" ]; then
     extract_and_replace_section "CELL" "&CELL" "&END CELL" $1 $2
     extract_and_replace_section "COORD" "&COORD" "&END COORD" $1 $2
