@@ -201,7 +201,7 @@ def plot_cycle_vs_energy(plot_file):
                 x.append(x[-1] + 1)
                 y.append(float(value[2]))
 
-        plt.scatter(x, y)
+        plt.scatter(x, y, s=10)
         plt.xlabel("Step")
         plt.ylabel("Energy (a.u.)")
         x_spacing = 5 * math.ceil(len(x) / 50)  # Adjust 50 to change spacing criteria
