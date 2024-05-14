@@ -26,17 +26,18 @@ def process_output_file(output_file):
     plot_file = output_file.split('.out')[0] + "__data.csv"
     starttime = ""
     CYCLE_NUMBER = 0
+    line_minus = 3
+    line_added = 3
+    line_number = 0
 
     with open(output_file, 'r') as f, open(plot_file, 'w') as o:
         lines = f.readlines()
-        num_lines = len(lines)
         for line in lines:
-            line_minus = 2
-            line_added = 4
+            line_number += 1
             if "RMS DISPLACEMENT" in line:
                 CYCLE_NUMBER += 1
-                top_line_number = lines.index(line) - line_minus
-                bottom_line_number = lines.index(line) + line_added
+                top_line_number = line_number - line_minus 
+                bottom_line_number = line_number + line_added
                 for contents in lines[top_line_number:bottom_line_number]:
                     if "ENERGY| Total FORCE_EVAL" in contents:
                         TOTAL_ENERGY = float(contents.split()[-1].strip())

@@ -27,6 +27,7 @@ def process_output_file(output_file):
     plot_file = output_file.split('.out')[0] + "__data.csv"
     starttime = ""
     TOTAL_TIME = 0
+    line_number = 0
 
     with open(output_file, 'r') as f, open(plot_file, 'w') as o:
         lines = f.readlines()
@@ -36,6 +37,7 @@ def process_output_file(output_file):
         SCF_OPTIMIZER = "DIAGONALIZATION"
         GEO_OPTIMIZER = "N/A"
         for line in lines:
+            line_number += 1
             if "PROGRAM STARTED AT" in line:
                 starttime = line.split('AT')[-1].strip()
             elif "PROGRAM ENDED AT" in line:
@@ -58,8 +60,8 @@ def process_output_file(output_file):
             elif "max_scf:" in line:
                 MAX_SCF = line.split(':')[-1].strip()
             elif "STARTING GEOMETRY OPTIMIZATION" in line:
-                line_number = lines.index(line)
-                line_number += 1
+                line = line_number
+                line += 1
                 GEO_OPTIMIZER = lines[line_number].split('***')[1].strip()
             elif " OT " in line:
                 SCF_OPTIMIZER = "OT"
@@ -75,7 +77,7 @@ def process_output_file(output_file):
                 SCF_NUMBER = line.split()[-2]
             elif "Informations at step" in line:
                 CYCLE_NUMBER = line.split('=')[-1].split('-')[0].strip()
-                top_line_number = lines.index(line)
+                top_line_number = line_number
                 bottom_line_number = top_line_number + line_added
                 for contents in lines[top_line_number:bottom_line_number]:
                     if "Decrease in energy " in contents:
@@ -151,7 +153,7 @@ def process_output_file(output_file):
                 o.write("\n")
             elif "OPTIMIZATION COMPLETED" in line:
                 CYCLE_NUMBER = line.split('=')[-1].split('-')[0].strip()
-                top_line_number = lines.index(line)
+                top_line_number = line_number
                 bottom_line_number = num_lines
                 for contents in lines[top_line_number:bottom_line_number]:
                     if "ENERGY" in contents:
