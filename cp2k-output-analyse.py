@@ -28,6 +28,10 @@ def process_output_file(output_file):
     starttime = ""
     TOTAL_TIME = 0
     line_number = 0
+    MAX_D = "0.003"
+    RMS_D = "0.0015"
+    MAX_F = "0.00045"
+    RMS_F = "0.0003"
 
     with open(output_file, 'r') as f, open(plot_file, 'w') as o:
         lines = f.readlines()
@@ -165,7 +169,7 @@ def process_output_file(output_file):
                 o.write("\n")
         TOTAL_TIME = str(datetime.timedelta(seconds=round(float(TOTAL_TIME))))
         o.write("# Done!")
-
+ 
     with open(plot_file, 'r+') as f:
         contents = f.read()
         f.seek(0, 0)
