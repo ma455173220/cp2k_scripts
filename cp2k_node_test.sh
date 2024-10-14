@@ -30,3 +30,15 @@ for NODE in {1..10}; do
 
     echo "Created folder $FOLDER_NAME with ncpus=$NCPUS and mem=$MEM"
 done
+
+# Ask if the user wants to submit the jobs
+read -p "Do you want to submit the jobs? (y/n): " SUBMIT_JOBS
+if [ "$SUBMIT_JOBS" == "y" ]; then
+    for NODE in {1..10}; do
+        FOLDER_NAME="node_${NODE}"
+        cd $FOLDER_NAME
+        qsub $RUNSCRIPT_NAME
+        cd ..
+        echo "Submitted job in folder $FOLDER_NAME"
+    done
+fi
