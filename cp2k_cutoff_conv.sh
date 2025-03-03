@@ -1,6 +1,7 @@
 #!/bin/bash
 
 ##Input parameters
+submit_cmd="sbatch"  # "qsub" or "sbatch"
 input_file=cp2k.inp   #Template file of present system      
 output_file=cp2k.out                                        
 run_script=conv_test                                              
@@ -32,7 +33,7 @@ run_input_files() {
             exit
         else
             cd $work_dir
-            /opt/pbs/default/bin/qsub $run_script
+            $submit_cmd $run_script
             echo "$work_dir: job submitted!"
             cd ..
         fi
