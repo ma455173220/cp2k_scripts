@@ -1,4 +1,4 @@
-#!/apps/python3/3.10.0/bin/python3
+#!/usr/bin/python3
 
 import os
 import sys
@@ -147,7 +147,7 @@ python3 cp2k-output-analyse.py OUTPUT_FILE.out
 
             # Extract relevant data for each optimization step
             for line in data.splitlines():
-                if any(term in line for term in ["ENERGY| Total FORCE_EVAL ( QS ) energy [a.u.]"]):
+                if any(term in line for term in ["ENERGY| Total FORCE_EVAL ( QS ) energy"]):
                     if optimization_step_data_dir['step'] == "Final":
                         TOTAL_ENERGY = float(line.replace("=", " ").split()[-1].strip())
                         optimization_step_data_dir['energy'] = TOTAL_ENERGY
