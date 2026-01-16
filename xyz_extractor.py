@@ -1,4 +1,4 @@
-#!/apps/python3/3.10.0/bin/python3
+#!/usr/bin/python3
 import argparse
 
 def extract_specific_frame(input_filename, output_filename, frame_number):

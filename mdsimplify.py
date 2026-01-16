@@ -1,4 +1,4 @@
-#!/home/561/hm1876/.local/miniconda3/bin/python
+#!/usr/bin/python3
 '''
 script to repick xyz from cp2k-pos* for every 10 or 20 structure.
 '''
