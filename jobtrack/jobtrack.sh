@@ -158,13 +158,7 @@ list_tasks() {
         
         local short_dir=$(echo "$dir" | awk -F'/' '{n=NF; if(n>1) print $(n-1)"/"$n; else print $n}')
         
-        # Add type indicator
-        local type_display=""
-        if [ "$type" = "LOCAL" ]; then
-            type_display="${MAGENTA}[LOCAL]${NC} "
-        fi
-        
-        printf "${GRAY}%s${NC} %s${CYAN}%s${NC} %s\n" "$time" "$type_display" "$job_id" "$short_dir"
+        printf "${GRAY}%s${NC} ${CYAN}%s${NC} %s\n" "$time" "$job_id" "$short_dir"
     done
 }
 
@@ -186,12 +180,7 @@ today_summary() {
             local time=$(echo "$timestamp" | cut -d' ' -f2)
             local short_dir=$(echo "$dir" | awk -F'/' '{n=NF; if(n>1) print $(n-1)"/"$n; else print $n}')
             
-            local type_display=""
-            if [ "$type" = "LOCAL" ]; then
-                type_display="${MAGENTA}[LOCAL]${NC} "
-            fi
-            
-            printf "${GRAY}%s${NC} %s${CYAN}%s${NC} %s\n" "$time" "$type_display" "$job_id" "$short_dir"
+            printf "${GRAY}%s${NC} ${CYAN}%s${NC} %s\n" "$time" "$job_id" "$short_dir"
         done
         echo ""
     fi

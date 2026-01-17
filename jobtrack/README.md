@@ -131,18 +131,18 @@ Killing process 98765...
 
 ## Date Grouping
 
-Jobs automatically grouped by submission date with type indicators:
+Jobs automatically grouped by submission date:
 
 ```
 Recent 20 jobs
 
 ━━━ Today (2026-01-17) ━━━
 10:30:45 12345678.gadi-pbs calculation/ZrS2
-10:28:12 [LOCAL] 98765 preprocessing/data_prep
+10:28:12 98765 preprocessing/data_prep
 09:15:22 12345677.gadi-pbs defects/V_S
 
 ━━━ Yesterday (2026-01-16) ━━━
-16:42:10 [LOCAL] 87654 analysis/post_process
+16:42:10 87654 analysis/post_process
 14:20:31 12345676.gadi-pbs perovskites/BTO
 ```
 
