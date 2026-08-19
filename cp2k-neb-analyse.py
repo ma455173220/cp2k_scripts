@@ -1,4 +1,4 @@
-#!/apps/python3/3.10.0/bin/python3
+#!/usr/bin/env python3
 
 """
 This script analyzes a CP2K output file and extracts information about the

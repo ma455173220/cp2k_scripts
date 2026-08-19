@@ -1,4 +1,4 @@
-#!/home/561/hm1876/.local/miniconda3/bin/python
+#!/usr/bin/env python3
 import os
 import math
 import numpy as np

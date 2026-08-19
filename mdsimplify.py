@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 '''
 script to repick xyz from cp2k-pos* for every 10 or 20 structure.
 '''
