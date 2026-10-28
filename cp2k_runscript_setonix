@@ -1,0 +1,68 @@
+#!/bin/bash --login
+#SBATCH --job-name=cp2k
+#SBATCH --account=pawsey0328
+#SBATCH --partition=work
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=128   # 128 cores per Setonix CPU node; per node, so cp2k_node_test.sh can scale --nodes
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=230G              # memory per node (use with shared nodes; --exclusive for whole nodes)
+#SBATCH --time=24:00:00
+#SBATCH --output=output_%j.txt
+
+# Setonix (Pawsey, Slurm) CP2K job template; the Gadi (PBS) version is cp2k_runscript.
+# cp2k_submission_script_generator.sh and cp2k_node_test.sh edit the JOBNAME/OUT_NAME lines below.
+
+JOBNAME="test"
+OUT_NAME="test"
+
+cd "$SLURM_SUBMIT_DIR" || exit 1
+
+#Modules
+# CHECK the CP2K module name/version on Setonix with:  module avail cp2k
+module load "cp2k/<VERSION>"   # CHECK: module avail cp2k  (replace <VERSION>)
+# export CP2K_DATA_DIR=/path/to/cp2k/data   # only if the module does not set it
+
+if ! command -v cp2k.psmp >/dev/null 2>&1; then
+	echo "ERROR: cp2k.psmp not found. Fix the 'module load cp2k/<VERSION>' line of this script (module avail cp2k)." >&2
+	exit 1
+fi
+
+if [ ! -f "${JOBNAME}.inp" ]; then
+	echo "ERROR: input file ${JOBNAME}.inp not found in $PWD (check JOBNAME)." >&2
+	exit 1
+fi
+
+HFX_DIR=""
+# HFX: Setonix compute nodes have no local disk (no jobfs), so the integrals that do not fit in
+# memory are stored on /scratch ($MYSCRATCH) instead of $PBS_JOBFS as on Gadi
+HFX_check=`grep "&HF" ${JOBNAME}.inp | grep -v "#"`
+if [ "$HFX_check" ] && [ -n "$MYSCRATCH" ] ; then
+	HFX_DIR="$MYSCRATCH/cp2k_hfx_${SLURM_JOB_ID}"
+	mkdir -p "$HFX_DIR"
+	sed -i "/@SET LT_STORAGE_LOCATION/d" ${JOBNAME}.inp
+	sed -i "1i @SET LT_STORAGE_LOCATION $HFX_DIR" ${JOBNAME}.inp
+	sed -i "/\<STORAGE_LOCATION\>/d" ${JOBNAME}.inp
+	sed -i "/\<MAX_DISK_SPACE\>/d" ${JOBNAME}.inp
+	sed -i "/EPS_STORAGE_SCALING/a\STORAGE_LOCATION \$LT_STORAGE_LOCATION" ${JOBNAME}.inp
+	sed -i "/EPS_STORAGE_SCALING/a\MAX_DISK_SPACE 8000" ${JOBNAME}.inp
+fi
+
+if [ -f ~/CP2K_JOB_PARAMETERS ] ; then
+	source ~/CP2K_JOB_PARAMETERS
+fi
+
+# OpenMP settings (hybrid MPI/OpenMP: set --cpus-per-task above and reduce --ntasks-per-node accordingly)
+# export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK ## Recommended: Use a thread count that is a multiple of 8 for optimal performance
+# export OMP_PLACES=cores
+# export OMP_PROC_BIND=close
+
+# Settings for MPI jobs
+export OMP_NUM_THREADS=1
+export MPICH_OFI_STARTUP_CONNECT=1
+export MPICH_OFI_VERBOSE=1
+export FI_CXI_DEFAULT_VNI=$(od -vAn -N4 -tu < /dev/urandom)
+
+srun -N $SLURM_JOB_NUM_NODES -n $SLURM_NTASKS -c $OMP_NUM_THREADS -m block:block:block cp2k.psmp -i ${JOBNAME}.inp -o ${OUT_NAME}.out
+
+# Remove the HFX scratch directory of this job
+[ -n "$HFX_DIR" ] && rm -rf -- "$HFX_DIR"

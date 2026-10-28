@@ -11,8 +11,12 @@ bond_length_traj.py
   # 最简单：从 traj.xyz 读取，指定元素对和第一壳截断
   python bond_length_traj.py -i traj.xyz -e Bi O --rmax 2.2
 
-  # XYZ 不含晶胞时，从 POSCAR 补充晶胞信息
+  # XYZ 不含晶胞时，从 POSCAR / cp2k.inp / *.restart 补充晶胞信息
   python bond_length_traj.py -i traj.xyz -e Fe O --rmax 2.2 --cell POSCAR
+  python bond_length_traj.py -i cp2k-pos-1.xyz -e Fe O --rmax 2.2 --cell cp2k.inp
+
+  # NPT / CELL_OPT：每一帧使用 cp2k-1.cell 中同一步的晶胞
+  python bond_length_traj.py -i cp2k-pos-1.xyz -e Fe O --rmax 2.2 --cell cp2k-1.cell
 
   # 放宽截断半径（先看全分布，再定 rmax）
   python bond_length_traj.py -i traj.xyz -e Fe O --scale 1.5
@@ -29,10 +33,23 @@ bond_length_traj.py
 """
 
 import argparse
+import os
+import shutil
 import sys
 import warnings
 import numpy as np
 from pathlib import Path
+
+# 共享模块 cp2k_inp.py / cp2k_xyz.py：先找本脚本所在目录，再找 PATH
+_lib_dir = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(os.path.join(_lib_dir, 'cp2k_xyz.py')) and shutil.which('cp2k_xyz.py'):
+    _lib_dir = os.path.dirname(os.path.realpath(shutil.which('cp2k_xyz.py')))
+sys.path.insert(0, _lib_dir)
+try:
+    import cp2k_inp
+    import cp2k_xyz
+except ImportError:
+    sys.exit('错误: 找不到 cp2k_inp.py / cp2k_xyz.py（请放在本脚本同一目录或 PATH 中）')
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -40,65 +57,13 @@ from pathlib import Path
 # ──────────────────────────────────────────────────────────────────────────────
 
 def calc_bond_lengths_pbc(atoms, elem1, elem2, scale: float = 1.0) -> list:
-    from ase.neighborlist import NeighborList, natural_cutoffs
-
-    cutoffs = natural_cutoffs(atoms, mult=scale)
-    nl = NeighborList(cutoffs, self_interaction=False, bothways=True)
-    nl.update(atoms)
-
-    symbols = atoms.get_chemical_symbols()
-    same_elem = (elem1 == elem2)
-    seen = set()
-    distances = []
-
-    for i, sym_i in enumerate(symbols):
-        if sym_i not in (elem1, elem2):
-            continue
-        indices, offsets = nl.get_neighbors(i)
-        for j, offset in zip(indices, offsets):
-            sym_j = symbols[j]
-            if same_elem:
-                if sym_i != elem1 or sym_j != elem1:
-                    continue
-            else:
-                if {sym_i, sym_j} != {elem1, elem2}:
-                    continue
-
-            if i == j:
-                neg = tuple(-o for o in offset)
-                key = (i, j, min(tuple(offset), neg))
-            elif i < j:
-                key = (i, j, tuple(offset))
-            else:
-                key = (j, i, tuple(-o for o in offset))
-
-            if key in seen:
-                continue
-            seen.add(key)
-
-            pos_i = atoms.positions[i]
-            pos_j = atoms.positions[j] + np.array(offset) @ atoms.cell
-            distances.append(float(np.linalg.norm(pos_j - pos_i)))
-
-    return distances
+    """考虑 PBC 的 elem1-elem2 键长（natural_cutoffs × scale；共享实现见 cp2k_xyz.bond_lengths）。"""
+    return [d for _, _, d in cp2k_xyz.bond_lengths(atoms, elem1, elem2, scale=scale)]
 
 
 def calc_bond_lengths_no_pbc(atoms, elem1, elem2, rmax: float) -> list:
-    symbols = np.array(atoms.get_chemical_symbols())
-    pos = atoms.positions
-    idx_a = np.where(symbols == elem1)[0]
-    idx_b = np.where(symbols == elem2)[0]
-    same_elem = (elem1 == elem2)
-
-    distances = []
-    for i in idx_a:
-        for j in idx_b:
-            if same_elem and j <= i:
-                continue
-            d = float(np.linalg.norm(pos[i] - pos[j]))
-            if d < rmax:
-                distances.append(d)
-    return distances
+    """不考虑 PBC、距离 < rmax 的 elem1-elem2 原子对（向量化）。"""
+    return cp2k_xyz.pair_distances_nopbc(atoms, elem1, elem2, rmax)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -130,13 +95,31 @@ def load_frames(xyz_path: Path, cell_src):
         )
 
     if cell_src is not None:
-        ref = read(str(cell_src), format="vasp")
-        cell = ref.get_cell()
         pbc = [True, True, True]
-        for atoms in frames:
-            atoms.set_cell(cell)
-            atoms.set_pbc(pbc)
-        print(f"晶胞来源: {cell_src}  ({cell[0,0]:.3f} x {cell[1,1]:.3f} x {cell[2,2]:.3f} A^3)")
+        try:
+            if str(cell_src).endswith('.cell') or cp2k_inp.is_cell_file(str(cell_src)):
+                # *-1.cell：每一帧用同一步（帧注释中的 i）的晶胞；没有该步时用之前最近的一步
+                steps = cp2k_inp.read_cell_file(str(cell_src))
+                for fi, atoms in enumerate(frames):
+                    step = atoms.info.get('i', fi)
+                    cell = steps[0][2]
+                    for s, _, c in steps:
+                        if s > step:
+                            break
+                        cell = c
+                    atoms.set_cell(cell)
+                    atoms.set_pbc(pbc)
+                cell = np.array(steps[-1][2])
+                print(f"晶胞来源: {cell_src}（逐帧，共 {len(steps)} 步；最后一步 "
+                      f"{cell[0,0]:.3f} x {cell[1,1]:.3f} x {cell[2,2]:.3f} A^3）")
+            else:
+                cell = np.array(cp2k_inp.get_cell(str(cell_src)))
+                for atoms in frames:
+                    atoms.set_cell(cell)
+                    atoms.set_pbc(pbc)
+                print(f"晶胞来源: {cell_src}  ({cell[0,0]:.3f} x {cell[1,1]:.3f} x {cell[2,2]:.3f} A^3)")
+        except (cp2k_inp.InputError, ValueError) as e:
+            sys.exit(f"错误: 无法从 {cell_src} 读取晶胞: {e}")
     elif has_cell:
         for atoms in frames:
             atoms.set_pbc([True, True, True])
@@ -333,7 +316,8 @@ def build_parser():
     p.add_argument("-e", "--elements", nargs=2, metavar=("ELEM1", "ELEM2"), required=True,
                    help="要分析的元素对，例如 -e Fe O")
     p.add_argument("--cell",           default=None,
-                   help="当 XYZ 不含晶胞时，从此 POSCAR/CONTCAR 读取晶胞（推荐）")
+                   help="当 XYZ 不含晶胞时，从此文件读取晶胞：POSCAR/CONTCAR、cp2k.inp、*.restart，"
+                        "或 *-1.cell（每帧使用同一步的晶胞）")
     p.add_argument("--scale",          type=float, default=1.0,
                    help="natural_cutoffs 缩放因子（默认 1.0；建议先用 1.5 看全分布）")
     p.add_argument("--rmax",           type=float, default=None,

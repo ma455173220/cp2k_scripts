@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script is used to create directories for different strains and submit jobs to qsub
+# This script is used to create directories for different strains and submit jobs to qsub (PBS) or sbatch (Slurm)
 # The script assumes that cp2k.inp and cp2k_runscript are in the current directory
 # The script also assumes that Multiwfn is installed and the executable is in the PATH
 # The script also assumes that cp2k-restart.sh is in the PATH
@@ -28,6 +28,18 @@ then
 	exit 1
 fi
 
+# Multiwfn is needed for every strain type
+if ! command -v Multiwfn >/dev/null 2>&1
+then
+	echo -e "${ORANGE}Error: Multiwfn not found in PATH"
+	exit 1
+fi
+
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
+
 # Set a function
 function Multiwfn_run (){
 	# If strain_choice is 1, then Multiwfn_function_choice=0
@@ -49,6 +61,8 @@ function Multiwfn_run (){
 		esac
 	fi
 
+	cp2k_restart=$(find_script cp2k-restart.sh /home/561/hm1876/cp2k/scripts/cp2k-restart.sh) || exit 1
+
 	# Loop through the arguments and create directories
 	for arg in "$@"
 	do
@@ -60,16 +74,24 @@ function Multiwfn_run (){
 
 		mkdir "strain_$arg"
 		cp $input_file $runscript "strain_$arg"
-		cd "strain_$arg"
 
-		# Run Multiwfn and cp2k-restart.sh
+		# Run Multiwfn and cp2k-restart.sh (in a subshell; the directory is removed again if anything fails)
 		echo -e "${GREEN}Running Multiwfn and cp2k-restart.sh for strain $arg..."
-		echo -e "$input_file\ncp2k\ntemp.inp\n-11\n21\n$Multiwfn_function_choice\n$arg\n-10\n0\nq" | Multiwfn 1>>/dev/null
-		/home/561/hm1876/cp2k/scripts/cp2k-restart.sh temp.inp $input_file
-		rm temp.inp
+		if ! (
+			cd "strain_$arg" || exit 1
+			echo -e "$input_file\ncp2k\ntemp.inp\n-11\n21\n$Multiwfn_function_choice\n$arg\n-10\n0\nq" | Multiwfn 1>>/dev/null
+			if [ ! -s temp.inp ]; then
+				echo -e "${ORANGE}Error: Multiwfn did not produce temp.inp" >&2
+				exit 1
+			fi
+			"$cp2k_restart" temp.inp $input_file || exit 1
+			rm temp.inp
+		)
+		then
+			echo -e "${ORANGE}Error: strain $arg failed, removing strain_$arg (it will not be submitted)"
+			rm -rf -- "strain_$arg"
+		fi
 		echo -e "${ORANGE}.............................................................................."
-
-		cd ..
 	done
 }
 
@@ -81,8 +103,18 @@ function shear_strain (){
 		exit 1
 	fi
 
-	# Gnerate POSCAR for the deform_strain.sh script
-	/home/561/hm1876/cp2k/scripts/cp2k2pos.sh $input_file
+	cp2k2cif=$(find_script cp2k2cif.sh /home/561/hm1876/cp2k/scripts/cp2k2cif.sh) || exit 1
+	deform_strain=$(find_script deform_strain.sh /home/561/hm1876/.local/bin/deform_strain.sh) || exit 1
+	cp2k_restart=$(find_script cp2k-restart.sh /home/561/hm1876/cp2k/scripts/cp2k-restart.sh) || exit 1
+
+	# Gnerate POSCAR for the deform_strain.sh script (cp2k2cif.sh menu option 1 = POSCAR;
+	# cp2k2pos.sh was merged into cp2k2cif.sh)
+	echo 1 | "$cp2k2cif" $input_file 1>>/dev/null
+	if [ ! -s POSCAR ]
+	then
+		echo -e "${ORANGE}Error: POSCAR was not generated from $input_file by $cp2k2cif"
+		exit 1
+	fi
 
 	# Loop through the arguments and create directories
 	for arg in "$@"
@@ -95,18 +127,26 @@ function shear_strain (){
 
 		mkdir "strain_$arg"
 		cp $input_file $runscript POSCAR "strain_$arg"
-		cd "strain_$arg"
 
-		# Run deform_strain, Multiwfn, and cp2k-restart.sh
+		# Run deform_strain, Multiwfn, and cp2k-restart.sh (in a subshell; the directory is removed again if anything fails)
 		echo -e "${GREEN}Running deform_strain, Multiwfn, and cp2k-restart.sh for strain $arg..."
-		new_arg=$(echo "$arg - 1" | bc)
-		/home/561/hm1876/.local/bin/deform_strain.sh $shear_strain_direction $new_arg
-		echo -e "POSCAR\ncp2k\ntemp.inp\n0\nq" | Multiwfn 1>>/dev/null
-		/home/561/hm1876/cp2k/scripts/cp2k-restart.sh temp.inp $input_file
-		rm temp.inp
+		if ! (
+			cd "strain_$arg" || exit 1
+			new_arg=$(echo "$arg - 1" | bc)
+			"$deform_strain" $shear_strain_direction $new_arg || exit 1
+			echo -e "POSCAR\ncp2k\ntemp.inp\n0\nq" | Multiwfn 1>>/dev/null
+			if [ ! -s temp.inp ]; then
+				echo -e "${ORANGE}Error: Multiwfn did not produce temp.inp" >&2
+				exit 1
+			fi
+			"$cp2k_restart" temp.inp $input_file || exit 1
+			rm temp.inp
+		)
+		then
+			echo -e "${ORANGE}Error: strain $arg failed, removing strain_$arg (it will not be submitted)"
+			rm -rf -- "strain_$arg"
+		fi
 		echo -e "${ORANGE}.............................................................................."
-
-		cd ..
 	done
 }
 
@@ -127,6 +167,7 @@ case $strain_choice in
 		;;
 	*)
 		echo "Invalid option selected."
+		exit 1
 		;;
 esac
 
@@ -134,8 +175,10 @@ esac
 echo -e "${ORANGE}.............................................................................."
 read -p "Submit all jobs? [Y/n]" choice
 
-if [[ $choice == "Y" || $choice == "y" ]]; then
-	# Loop through the arguments and submit jobs to qsub
+if [[ -z $choice || $choice == "Y" || $choice == "y" ]]; then
+	submit_command=$(submit_cmd) || { echo -e "${ORANGE}Error: neither qsub nor sbatch found, jobs not submitted."; exit 1; }
+
+	# Loop through the arguments and submit jobs to qsub/sbatch
 	for arg in "$@"
 	do
 		if [ -d "strain_$arg" ] && [ -n "$(find "strain_$arg" -maxdepth 1 -name '*.out' -print -quit)" ]; then
@@ -144,11 +187,14 @@ if [[ $choice == "Y" || $choice == "y" ]]; then
 			continue
 		fi
 
-		cd "strain_$arg"
+		if [ ! -d "strain_$arg" ]; then
+			echo -e "${ORANGE}Directory strain_$arg does not exist, skipping..."
+			continue
+		fi
+
 		echo -e "${GREEN}Submitting job for strain $arg..."
-		qsub $runscript
+		submit_in_dir "strain_$arg" $runscript "$submit_command"
 		echo -e "${ORANGE}.............................................................................."
-		cd ..
 	done
 else
 	echo -e "${ORANGE}Jobs not submitted."

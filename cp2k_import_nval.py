@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import json
+import os
 import re
+# NOTE: only GTH_POTENTIALS, NLCC_POTENTIALS and ECP_POTENTIALS are actually parsed below;
+# ALL_POTENTIAL, POTENTIAL and POTENTIAL_UZH are accepted here but not implemented yet.
 SUPPORTED_PP = ['ALL_POTENTIAL', 'POTENTIAL', 'POTENTIAL_UZH', 'GTH_POTENTIALS', 'NLCC_POTENTIALS', 'ECP_POTENTIALS']
 def generateCp2kValenceElectronsInformation(
     pseudoPotentialFile = 'GTH_POTENTIALS',
-    pseudoPotentialPath = '/home/561/hm1876/cp2k/data/',
+    pseudoPotentialPath = os.environ.get('CP2K_DATA_DIR', '/home/561/hm1876/cp2k/data/'),
     functional = 'PBE',
     boolSmallCorePseudoPotential = True
 ):
@@ -24,18 +27,20 @@ def generateCp2kValenceElectronsInformation(
     
     def importNumberOfElectrons(element, qP):
         # abbr.: qPresent -> qP
+        # small core (semicore) = MORE valence electrons -> keep the largest q;
+        # big core = fewer valence electrons -> keep the smallest q
         try:
             q = numberOfValenceElectronDict[element]
             if (
-                q > qP and boolSmallCorePseudoPotential
+                qP > q and boolSmallCorePseudoPotential
                 ) or (
-                    q <= qP and not boolSmallCorePseudoPotential
+                    qP < q and not boolSmallCorePseudoPotential
                     ):
                 numberOfValenceElectronDict[element] = qP
         except KeyError:
             numberOfValenceElectronDict[element] = qP
 
-    with open(file = pseudoPotentialPath+pseudoPotentialFile, mode = 'r') as pseudo_f:
+    with open(file = os.path.join(pseudoPotentialPath, pseudoPotentialFile), mode = 'r') as pseudo_f:
         line = 'start'
         while line:
             line = pseudo_f.readline()
@@ -76,12 +81,12 @@ def generateCp2kValenceElectronsInformation(
         if pPFCase == 1:
             jsonFileName = pseudoPotentialFile+'-'+functional+'-SmallCore.json'
         else:
-            jsonFileName = pseudoPotentialFile+'-'+'-SmallCore.json'
+            jsonFileName = pseudoPotentialFile+'-SmallCore.json'
     else:
         if pPFCase == 1:
             jsonFileName = pseudoPotentialFile+'-'+functional+'-BigCore.json'
         else:
-            jsonFileName = pseudoPotentialFile+'-'+'-BigCore.json'
+            jsonFileName = pseudoPotentialFile+'-BigCore.json'
     with open(jsonFileName, mode = 'w', encoding = 'utf-8') as json_f:
         json.dump(numberOfValenceElectronDict, json_f, indent = 2)
 

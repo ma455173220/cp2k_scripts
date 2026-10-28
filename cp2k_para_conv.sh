@@ -7,6 +7,8 @@ VALUES=()
 EXTRA_FILES=()
 JOB_SCRIPT=""
 CLEAN_DIR=0
+ALLOW_APPEND=0
+BIG_FILE_MB=50   # 未指定 -f 时，大于此大小（MB）的文件建立软链接而不是复制
 
 SCRIPT_NAME="$(basename "$0")"
 
@@ -20,12 +22,19 @@ cp2k_para_conv.sh
 
 参数：
   -p  （必填）要测试的参数名，如 CUTOFF、REL_CUTOFF、EPS_SCF
+      也可写成 段落路径/参数名，只修改该段落中的参数（需要 cp2k_inp.py），如
+      MGRID/CUTOFF、FORCE_EVAL/DFT/SCF/EPS_SCF、OUTER_SCF/EPS_SCF；
+      该段落中没有此参数时自动加在段落的 &END 之前；目录名只用参数名
       多值参数（k点等）可用冒号替代空格，如 "MONKHORST-PACK:2:2:2"
   -v  （必填）测试值列表，空格分隔，引号括起；"none" 表示注释掉该参数
   -i  （可选）CP2K 输入文件路径（默认：当前目录唯一的 .inp 文件）
   -j  （可选）提交脚本文件名（如 job.sh）；指定后询问是否提交
   -f  （可选）额外要复制的文件，可重复指定多次
+      未指定 -f 时：自动复制当前目录的普通文件，但跳过 wfn/cube/轨迹/ener/restart/
+      备份/作业日志等输出文件，大于 50 MB 的文件建立软链接
   -c  （可选）若目录已存在，先清空再重建（默认：合并写入）
+  -a  （可选）输入文件中找不到该参数时追加到文件末尾（默认：报错退出，不生成任何目录）
+      注意：追加的位置在 &END FORCE_EVAL 之后，通常不是合法的 CP2K 输入，请自行检查
   -h  显示此帮助
 
 示例：
@@ -49,17 +58,12 @@ sanitize_name() {
     | sed 's/[^a-zA-Z0-9._-]/_/g'
 }
 
-detect_scheduler() {
-    if command -v qsub >/dev/null 2>&1; then
-        echo "pbs"
-    elif command -v sbatch >/dev/null 2>&1; then
-        echo "slurm"
-    else
-        echo "none"
-    fi
-}
+# 公共函数（cp2k_common.sh：先找本脚本所在目录，再找 PATH）
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
-while getopts ":p:v:i:j:f:ch" opt; do
+while getopts ":p:v:i:j:f:cah" opt; do
     case "$opt" in
         p) PARAM="$OPTARG" ;;
         v) read -r -a VALUES <<< "$OPTARG" ;;
@@ -67,6 +71,7 @@ while getopts ":p:v:i:j:f:ch" opt; do
         j) JOB_SCRIPT="$OPTARG" ;;
         f) EXTRA_FILES+=("$OPTARG") ;;
         c) CLEAN_DIR=1 ;;
+        a) ALLOW_APPEND=1 ;;
         h) usage; exit 0 ;;
         :) error_usage "选项 -$OPTARG 需要参数" ;;
         \?) error_usage "未知选项 -$OPTARG" ;;
@@ -109,14 +114,36 @@ while IFS= read -r -d '' lnk; do
 done < <(find . -maxdepth 1 -type l -print0 2>/dev/null)
 
 if [[ ${#EXTRA_FILES[@]} -eq 0 ]]; then
+    SKIPPED_FILES=()
+    BIG_FILES=()
     while IFS= read -r -d '' f; do
         fname="$(basename "$f")"
         case "$fname" in
             "$SCRIPT_NAME"|"$INP_BASENAME"|*.out|*.log|*.bak) continue ;;
+            # CP2K 输出/大文件：波函数、cube、轨迹、能量、restart、备份、PBS/Slurm 作业日志
+            *.wfn|*.wfn.bak-*|*.cube|*.cub|*-pos-*.xyz|*-vel-*|*-frc-*|*.ener|*.restart|*.bak-*|*.o[0-9]*|*.e[0-9]*|slurm-*)
+                SKIPPED_FILES+=("$fname"); continue ;;
         esac
+        # 大文件建立软链接，不复制
+        if [[ -n "$(find "$f" -maxdepth 0 -size +"${BIG_FILE_MB}"M)" ]]; then
+            BIG_FILES+=("$fname")
+            EXTRA_LINKS+=("$fname")
+            continue
+        fi
         EXTRA_FILES+=("$fname")
     done < <(find . -maxdepth 1 -type f -print0)
     printf '[提示] 未指定 -f，将复制筛选后的普通文件（共 %d 个）\n' "${#EXTRA_FILES[@]}"
+    [[ ${#SKIPPED_FILES[@]} -gt 0 ]] && printf '[提示] 跳过输出/大文件（%d 个，需要时请用 -f 指定）：%s\n' "${#SKIPPED_FILES[@]}" "${SKIPPED_FILES[*]}"
+    [[ ${#BIG_FILES[@]} -gt 0 ]] && printf '[提示] 大于 %d MB 的文件改为软链接：%s\n' "$BIG_FILE_MB" "${BIG_FILES[*]}"
+fi
+
+# -j 指定的提交脚本总是复制到各测试目录（即使使用了 -f）
+if [[ -n "$JOB_SCRIPT" ]]; then
+    job_in_list=0
+    for f in "${EXTRA_FILES[@]}"; do
+        [[ "$(basename "$f")" == "$(basename "$JOB_SCRIPT")" ]] && job_in_list=1
+    done
+    [[ "$job_in_list" -eq 0 ]] && EXTRA_FILES+=("$JOB_SCRIPT")
 fi
 
 for f in "${EXTRA_FILES[@]}"; do
@@ -140,12 +167,13 @@ modify_inp() {
     local dst="$2"
     local param="$3"
     local val="$4"
+    local mode="${5:-modify}"   # modify：生成修改后的文件；check：只输出匹配行数
 
-    python3 - "$src" "$dst" "$param" "$val" <<'PYEOF'
+    python3 - "$src" "$dst" "$param" "$val" "$mode" "$ALLOW_APPEND" <<'PYEOF'
 import sys
 import re
 
-src, dst, param, val = sys.argv[1:]
+src, dst, param, val, mode, allow_append = sys.argv[1:]
 write_val = val.replace(":", " ")
 val_lc = val.lower()
 
@@ -193,15 +221,22 @@ for line in lines:
 
     result.append(line)
 
+if mode == "check":
+    print(match_count)
+    sys.exit(0)
+
 if match_count > 1:
     sys.stderr.write(f"  [警告] 参数 {param} 匹配到 {match_count} 处，仅修改首个匹配\n")
 
 if not modified:
     if val_lc == "none":
         sys.stderr.write(f"  [提示] {param} 未找到激活行，无需注释（文件未修改）\n")
-    else:
+    elif allow_append == "1":
         result.append(f"\n  {param}  {write_val}\n")
-        sys.stderr.write(f"  [追加] 未找到 {param}，已追加到文件末尾\n")
+        sys.stderr.write(f"  [追加] 未找到 {param}，已追加到文件末尾（-a），请检查位置是否合法\n")
+    else:
+        sys.stderr.write(f"  [错误] 未找到 {param}（可用 -a 强制追加）\n")
+        sys.exit(1)
 
 with open(dst, "w", encoding="utf-8") as fh:
     fh.writelines(result)
@@ -214,11 +249,46 @@ if modified:
 PYEOF
 }
 
+# -p SECTION/PATH/KEY：交给 cp2k_inp.py 修改指定段落中的参数
+SECTION_PATH=""
+KEY_NAME="$PARAM"
+if [[ "$PARAM" == */* ]]; then
+    SECTION_PATH="${PARAM%/*}"
+    KEY_NAME="${PARAM##*/}"
+    [[ -z "$SECTION_PATH" || -z "$KEY_NAME" ]] && error_usage "参数路径格式应为 段落/.../参数名：$PARAM"
+    CP2K_INP_PY="$(find_script cp2k_inp.py)" || error_usage "-p 使用段落路径时需要 cp2k_inp.py（放在本脚本同一目录或 PATH 中）"
+fi
+
+modify_inp_section() {
+    local src="$1" dst="$2" val="$3" msg rc=0
+    msg="$("$CP2K_INP_PY" set-key "$src" "$SECTION_PATH" "$KEY_NAME" "${val//:/ }" -o "$dst" 2>&1)" || rc=$?
+    printf '  %s\n' "$msg" >&2
+    return "$rc"
+}
+
+# 生成任何目录之前，先确认输入文件中存在该参数（激活或被注释的行均可）
+if [[ -n "$SECTION_PATH" ]]; then
+    param_matches="$("$CP2K_INP_PY" set-key "$INP_FILE" "$SECTION_PATH" "$KEY_NAME" x --check)" \
+        || error_usage "$INP_FILE 中找不到唯一的段落 $SECTION_PATH（见上面的错误信息）"
+    [[ "$param_matches" -eq 0 ]] && printf '  [提示] 段落 %s 中没有 %s，将加在该段落的 &END 之前\n' "$SECTION_PATH" "$KEY_NAME"
+    param_matches=1
+else
+    param_matches="$(modify_inp "$INP_FILE" /dev/null "$PARAM" "check" check)" \
+        || error_usage "检查 $INP_FILE 中的参数 $PARAM 失败"
+fi
+if [[ "$param_matches" -eq 0 ]]; then
+    if [[ "$ALLOW_APPEND" -eq 1 ]]; then
+        printf '  [警告] %s 中找不到参数 %s，将按 -a 追加到文件末尾（&END FORCE_EVAL 之后通常不合法，请检查）\n' "$INP_FILE" "$PARAM" >&2
+    else
+        error_usage "$INP_FILE 中找不到参数 $PARAM（激活或注释行均没有）；请检查拼写，或用 -a 强制追加到文件末尾"
+    fi
+fi
+
 GENERATED_DIRS=()
 
 for val in "${VALUES[@]}"; do
     val_lc="$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')"
-    safe_param="$(sanitize_name "$PARAM")"
+    safe_param="$(sanitize_name "$KEY_NAME")"
     safe_val="$(sanitize_name "$val")"
 
     if [[ "$val_lc" == "none" ]]; then
@@ -243,7 +313,13 @@ for val in "${VALUES[@]}"; do
     mkdir -p "$dir_name"
 
     target_inp="${dir_name}/${INP_BASENAME}"
-    if ! modify_output=$(modify_inp "$INP_FILE" "$target_inp" "$PARAM" "$val" 2>&1); then
+    if [[ -n "$SECTION_PATH" ]]; then
+        modify_ok=0; modify_output=$(modify_inp_section "$INP_FILE" "$target_inp" "$val" 2>&1) || modify_ok=1
+    else
+        modify_ok=0; modify_output=$(modify_inp "$INP_FILE" "$target_inp" "$PARAM" "$val" 2>&1) || modify_ok=1
+    fi
+    if [[ "$modify_ok" -ne 0 ]]; then
+        printf '%s\n' "$modify_output" >&2
         printf '  [错误] 修改 .inp 失败，跳过：%s\n' "$dir_name" >&2
         continue
     fi
@@ -294,15 +370,15 @@ printf '\n'
 
 SCHEDULER="$(detect_scheduler)"
 case "$SCHEDULER" in
-    pbs)   SUBMIT_CMD="qsub";   SCHED_NAME="PBS" ;;
-    slurm) SUBMIT_CMD="sbatch"; SCHED_NAME="Slurm" ;;
+    pbs)   SUBMIT_CMD="$(submit_cmd)"; SCHED_NAME="PBS" ;;
+    slurm) SUBMIT_CMD="$(submit_cmd)"; SCHED_NAME="Slurm" ;;
     none)
         printf '  [警告] 未检测到 qsub 或 sbatch，无法提交任务\n' >&2
         exit 0
         ;;
 esac
 
-printf '  检测到调度系统：%s（%s）\n\n' "$SCHED_NAME" "$SUBMIT_CMD"
+printf '  检测到调度系统：%s（%s）\n\n' "$SCHED_NAME" "${SUBMIT_CMD##*/}"
 
 if [[ ! -t 0 ]]; then
     printf '  [非交互模式] 跳过提交，请手动进入各目录提交任务\n'
@@ -318,13 +394,13 @@ case "$answer" in
         submit_ok=0
         submit_fail=0
         for d in "${GENERATED_DIRS[@]}"; do
-            job_path="${d}/${JOB_SCRIPT}"
+            job_path="${d}/$(basename "$JOB_SCRIPT")"
             if [[ ! -f "$job_path" ]]; then
                 printf '  [跳过] 找不到提交脚本：%s\n' "$job_path" >&2
                 ((submit_fail++)) || true
                 continue
             fi
-            if job_id=$(cd "$d" && "$SUBMIT_CMD" "$JOB_SCRIPT" 2>&1); then
+            if job_id=$(submit_in_dir "$d" "$(basename "$JOB_SCRIPT")" "$SUBMIT_CMD" 2>&1); then
                 printf '  [已提交] %s  →  %s\n' "$d" "$job_id"
                 ((submit_ok++)) || true
             else

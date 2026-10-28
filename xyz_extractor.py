@@ -28,6 +28,8 @@ Examples:
   xyz_extractor.py -i traj.xyz -r 50 --start 1000 --dry-run
 """
 
+from __future__ import annotations  # allows "int | None" / "list[int]" annotations on Python 3.7+
+
 import argparse
 import random
 import sys
@@ -277,7 +279,7 @@ def main() -> None:
     else:
         head = selected[:10]
         tail = selected[-5:]
-        print(f"Frame indices : {head} … {tail}  (use -v to suppress this summary)")
+        print(f"Frame indices : {head} … {tail}  (use -v to show all)")
 
     if args.dry_run:
         print("[dry-run] No file written.")

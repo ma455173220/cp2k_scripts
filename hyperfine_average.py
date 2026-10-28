@@ -14,12 +14,18 @@ with open(output_file, 'r') as f:
         if "Extracted value" in line:
             line_start = lines.index(line)
             line_start += 3 
+            # keep only data rows: skip blank lines and "----" separators
+            # (written between atoms by extract-hyperfine.sh in multi-dir mode)
+            data_lines = [l for l in lines[line_start:] if l.strip() and not l.strip().startswith('----')]
+            line_start = 0
             for i in number_of_rows:
                 value_sum = 0
                 line_end = line_start + int(i)
-                value_lines = lines[line_start:line_end]
+                value_lines = data_lines[line_start:line_end]
                 for ii in value_lines:
-                    value = ii.split('\t')[1:][0].strip().split()
+                    # value is the last tab-separated column:
+                    #   single dir: atom<TAB>value      multi dir: dir<TAB>atom<TAB>value
+                    value = ii.rstrip('\n').split('\t')[-1].strip().split()
                     if len(value) == 1:
                         value_sum += float(value[0])
                     else:
