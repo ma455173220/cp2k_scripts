@@ -5,7 +5,7 @@ This script analyzes a CP2K output file and extracts information about the
 NEB information. Output: Step | Energy | RMS DISPLACEMENT | MAX DISPLACEMENT | RMS FORCE | MAX FORCE
 
 Usage:
-  cp2k-NEB-analyse.py OUTPUT_FILE.out
+  cp2k-neb-analyse.py OUTPUT_FILE.out [--plot | --no-plot]
 """
 
 import os
@@ -16,7 +16,9 @@ def print_usage():
     print("""
 ***************************************
 *** The format of the script: ***
-cp2k-NEB-analyse.py OUTPUT_FILE.out
+cp2k-neb-analyse.py OUTPUT_FILE.out [--plot | --no-plot]
+(without --plot/--no-plot you are asked
+ if the script runs in a terminal)
 ***************************************
     """)
 
@@ -113,12 +115,18 @@ def plot_cycle_vs_par(plot_file):
     plt.show()
 
 def main():
-    if len(sys.argv) < 2:
+    plot = None
+    if "--plot" in sys.argv[1:]:
+        plot = True
+    if "--no-plot" in sys.argv[1:]:
+        plot = False
+    files = [a for a in sys.argv[1:] if a not in ("--plot", "--no-plot")]
+    if len(files) < 1:
         print("\033[31mERROR:\033[0m Missing file operand! Please identify the name of OUTPUT_FILE.out")
         print_usage()
         sys.exit(1)
 
-    output_file = sys.argv[1]
+    output_file = files[0]
     print("=======================================")
     print("In process...")
     print("...")
@@ -130,9 +138,14 @@ def main():
         sys.exit(1)
 
     print("=======================================")
-    print("Do you want to plot cycle vs. convergence parameters?\n(y/n)")
-    plot_choice = input()
-    if plot_choice.lower() == "y":
+    if plot is None:
+        # no --plot/--no-plot: ask, but only when someone can answer (stdin is a terminal)
+        if sys.stdin.isatty():
+            print("Do you want to plot cycle vs. convergence parameters?\n(y/n)")
+            plot = input().lower() == "y"
+        else:
+            plot = False
+    if plot:
         plot_cycle_vs_par(output_file.split('.out')[0] + "__data.csv")
 
     print("Done!")

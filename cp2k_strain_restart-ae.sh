@@ -26,31 +26,10 @@ then
 	exit 1
 fi
 
-# Locate a helper script: next to this script, then in PATH, then the old Gadi location
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-function find_script (){
-	if [ -x "$SCRIPT_DIR/$1" ]; then
-		echo "$SCRIPT_DIR/$1"
-	elif command -v "$1" >/dev/null 2>&1; then
-		command -v "$1"
-	elif [ -x "$2" ]; then
-		echo "$2"
-	else
-		echo -e "${ORANGE}Error: cannot find $1 (searched $SCRIPT_DIR, PATH and $2)" >&2
-		return 1
-	fi
-}
-
-# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
-detect_scheduler() {
-	if command -v qsub >/dev/null 2>&1; then
-		echo "pbs"
-	elif command -v sbatch >/dev/null 2>&1; then
-		echo "slurm"
-	else
-		echo "none"
-	fi
-}
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
 cp2k_restart=$(find_script cp2k-restart.sh /home/561/hm1876/cp2k/scripts/cp2k-restart.sh) || exit 1
 
@@ -86,17 +65,13 @@ echo -e "${ORANGE}..............................................................
 read -p "Submit all jobs? [Y/n]" choice
 
 if [[ -z $choice || $choice == "Y" || $choice == "y" ]]; then
-	case "$(detect_scheduler)" in
-		pbs)   submit_cmd="qsub" ;;
-		slurm) submit_cmd="sbatch" ;;
-		*)     echo -e "${ORANGE}Error: neither qsub nor sbatch found, jobs not submitted."; exit 1 ;;
-	esac
+	submit_command=$(submit_cmd) || { echo -e "${ORANGE}Error: neither qsub nor sbatch found, jobs not submitted."; exit 1; }
 
 	# Submit the prepared directories to qsub/sbatch
 	for dir in "${done_dirs[@]}"
 	do
 		echo -e "${GREEN}Submitting job for strain ${dir#strain_}..."
-		( cd "$dir" && $submit_cmd "$runscript" )
+		submit_in_dir "$dir" "$runscript" "$submit_command"
 		echo -e "${ORANGE}.............................................................................."
 	done
 else

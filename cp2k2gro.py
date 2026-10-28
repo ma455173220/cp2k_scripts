@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 import os
+import sys
 import math
+import shutil
 import numpy as np
 from optparse import OptionParser
+
+# Shared module cp2k_xyz.py: next to this script, else in PATH
+_lib_dir = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(os.path.join(_lib_dir, 'cp2k_xyz.py')) and shutil.which('cp2k_xyz.py'):
+    _lib_dir = os.path.dirname(os.path.realpath(shutil.which('cp2k_xyz.py')))
+sys.path.insert(0, _lib_dir)
+try:
+    from cp2k_xyz import iter_xyz
+except ImportError:
+    raise SystemExit("Wrong! cp2k_xyz.py not found (keep it next to this script or in PATH).")
 
 class CP2K2GRO(object):
     def __init__(self, options):
@@ -159,70 +171,55 @@ class CP2K2GRO(object):
             writer.write("rvdw            = 0.01       ; Short-range Van der Waals cut-off\n")
             writer.write("pbc             = xyz       ; Periodic Boundary Conditions (yes/no)\n\n")
 
+    def lattice_at(self, time):
+        """Cell (3 vectors) at the given time: fixed cell, or the row of the .cell file with that time."""
+        if self._cell_fix:
+            return self.cells
+        if not hasattr(self, '_cell_by_time'):
+            # first row for every time (dictionary: one lookup per frame instead of a scan of all rows)
+            self._cell_by_time = {}
+            for row in self.cells.tolist():
+                self._cell_by_time.setdefault(row[1], row)
+        try:
+            lattice_infos = self._cell_by_time[time]
+        except KeyError:
+            raise SystemExit("Wrong!, time interval in cell is large than that in xyz files.")
+        newlattice=[]
+        newlattice.append(list(map(float,lattice_infos[2:5])))
+        newlattice.append(list(map(float,lattice_infos[5:8])))
+        newlattice.append(list(map(float,lattice_infos[8:11])))
+        return newlattice
+
+    @staticmethod
+    def frame_atoms(frame):
+        atoms=[]
+        for line in frame.atom_lines:
+            info=line.split()
+            atoms.append((info[0],list(map(float,info[1:]))))
+        return atoms
+
     def read_xyz(self):
-        with open(self.xyz,'r') as reader:
-            atom_numbers=int(reader.readline())
-            reader.seek(0)
-            while(reader.tell() < os.path.getsize(self.xyz)):
-                reader.readline()
-                info=reader.readline().split()
-                time=float(info[5].strip(","))
-                if not self._cell_fix:
-                    try:
-                        lattice_infos=self.cells[self.cells[:,1]==time].tolist()[0]
-                    except:
-                        raise SystemExit("Wrong!, time interval in cell is large than that in xyz files.")
-                    newlattice=[]
-                    newlattice.append(list(map(float,lattice_infos[2:5])))
-                    newlattice.append(list(map(float,lattice_infos[5:8])))
-                    newlattice.append(list(map(float,lattice_infos[8:11])))
-                else:
-                    newlattice = self.cells
-                atoms=[]
-                for i in range(atom_numbers):
-                    info=reader.readline().split()
-                    atom_label=info[0]
-                    atom_xyz=list(map(float,info[1:]))
-                    atoms.append((atom_label,atom_xyz))                
-                self.write_gro(self.gro_name, time, atoms, newlattice)
-                
-            self.atoms = atoms
+        atoms = []
+        for frame in iter_xyz(self.xyz):
+            time=float(frame.comment.split()[5].strip(","))
+            newlattice = self.lattice_at(time)
+            atoms = self.frame_atoms(frame)
+            self.write_gro(self.gro_name, time, atoms, newlattice)
+        self.atoms = atoms
 
     def read_xyz_velocity(self):
-        with open(self.xyz,'r') as reader,open(self.velocity_,'r') as reader1:
-            atom_numbers=int(reader.readline())
-            reader.seek(0)
-            while(reader.tell() < os.path.getsize(self.xyz)):
-                reader.readline()
-                info=reader.readline().split()
-                time=float(info[5].strip(","))
-                if not self._cell_fix:
-                    try:
-                        lattice_infos=self.cells[self.cells[:,1]==time].tolist()[0]
-                    except:
-                        raise SystemExit("Wrong!, time interval in cell is large than that in xyz files.")
-                    newlattice=[]
-                    newlattice.append(list(map(float,lattice_infos[2:5])))
-                    newlattice.append(list(map(float,lattice_infos[5:8])))
-                    newlattice.append(list(map(float,lattice_infos[8:11])))
-                else:
-                    newlattice = self.cells
-                atoms=[]
-                for i in range(atom_numbers):
-                    info=reader.readline().split()
-                    atom_label=info[0]
-                    atom_xyz=list(map(float,info[1:]))
-                    atoms.append((atom_label,atom_xyz)) 
-                reader1.readline()
-                reader1.readline()
-                atoms_vel=[]
-                for i in range(atom_numbers):
-                    info=reader1.readline().split()
-                    atom_vel=list(map(lambda x: float(x)*2187.6912546085964 ,info[1:]))
-                    atoms_vel.append(atom_vel)                 
-                self.write_gro_vel(self.gro_name, time, atoms, newlattice,atoms_vel)
-                
-            self.atoms = atoms
+        atoms = []
+        for frame, vframe in zip(iter_xyz(self.xyz), iter_xyz(self.velocity_)):
+            time=float(frame.comment.split()[5].strip(","))
+            newlattice = self.lattice_at(time)
+            atoms = self.frame_atoms(frame)
+            atoms_vel=[]
+            for line in vframe.atom_lines:
+                info=line.split()
+                atom_vel=list(map(lambda x: float(x)*2187.6912546085964 ,info[1:]))
+                atoms_vel.append(atom_vel)
+            self.write_gro_vel(self.gro_name, time, atoms, newlattice,atoms_vel)
+        self.atoms = atoms
             
     def read_cell(self):
         cells=np.loadtxt(self.cell)

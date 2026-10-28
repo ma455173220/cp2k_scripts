@@ -4,12 +4,14 @@
 #
 # Usage: xyz2neb.pl initial.xyz final.xyz N [-c cp2k.inp | a b c]
 #   Writes 0.xyz ... N.xyz, linearly interpolated between initial and final geometry.
-#   With a cell (-c reads &CELL from a CP2K input/restart file: A/B/C vectors or ABC [+ ALPHA_BETA_GAMMA];
-#   or three numbers a b c for an orthorhombic cell in Angstrom), every atom moves along the
+#   With a cell (-c FILE: &CELL of a CP2K input/restart, a *-1.cell file (last step) or a POSCAR, read with
+#   cp2k_inp.py; or three numbers a b c for an orthorhombic cell in Angstrom), every atom moves along the
 #   minimum-image displacement, so atoms wrapped across the periodic boundary do not jump through the cell.
 use strict;
 use warnings;
 use POSIX qw(floor);
+use Cwd qw(abs_path);
+use File::Basename qw(dirname);
 
 my $usage = "Usage: $0 initial.xyz final.xyz N [-c cp2k.inp | a b c]\n";
 die $usage if @ARGV < 3;
@@ -112,44 +114,22 @@ sub read_xyz {
     return @coords;
 }
 
-# Read the &CELL section of a CP2K input or restart file -> 3x3 matrix (rows a, b, c) in Angstrom
+# Cell (3x3, rows a, b, c in Angstrom) of a CP2K input/restart, *-1.cell (last step) or POSCAR file,
+# read with cp2k_inp.py (next to this script, else in PATH)
 sub read_cp2k_cell {
     my ($file) = @_;
-    my $bohr = 0.529177210903;
-    open (my $fh, "<", $file) || die "Failed to open $file : $!";
-    my ($in, $depth, %v, @abc, @ang) = (0, 0);
-    while (my $l = <$fh>) {
-        $l =~ s/[#!].*$//;
-        $l =~ s/^\s+|\s+$//g;
-        next if $l eq '';
-        if (!$in) { $in = 1 if $l =~ /^&CELL$/i; next; }
-        if ($l =~ /^&END/i) { last if $depth == 0; $depth--; next; }
-        if ($l =~ /^&/) { $depth++; next; }       # skip nested sections such as &CELL_REF
-        next if $depth > 0;
-        my ($key, @w) = split(/\s+/, $l);
-        my $scale = 1.0;
-        if (@w && $w[0] =~ /^\[(\w+)\]$/) {
-            my $u = lc $1; shift @w;
-            if ($u eq 'bohr') { $scale = $bohr; } elsif ($u ne 'angstrom') { die "Error: unsupported unit [$u] in &CELL of $file\n"; }
-        }
-        $key = uc $key;
-        if ($key =~ /^[ABC]$/)          { $v{$key} = [map { $_ * $scale } @w[0..2]]; }
-        elsif ($key eq 'ABC')           { @abc = map { $_ * $scale } @w[0..2]; }
-        elsif ($key eq 'ALPHA_BETA_GAMMA') { @ang = @w[0..2]; }
+    my $exe;
+    my $self_dir = dirname(abs_path($0));
+    for my $dir ($self_dir, split(/:/, $ENV{PATH} // '')) {
+        if (-x "$dir/cp2k_inp.py") { $exe = "$dir/cp2k_inp.py"; last; }
     }
+    die "Error: cp2k_inp.py not found (keep it next to $0 or in PATH); it is needed for -c.\n" unless $exe;
+    open(my $fh, '-|', $exe, 'get-cell', $file, '--format', 'vectors', '--fmt', '.17g')
+        || die "Failed to run $exe: $!\n";
+    my @cell = map { [split] } grep { /\S/ } <$fh>;
     close($fh);
-    die "Error: no &CELL section found in $file\n" unless $in;
-    return ($v{A}, $v{B}, $v{C}) if $v{A} && $v{B} && $v{C};
-    if (@abc == 3) {
-        @ang = (90, 90, 90) unless @ang == 3;
-        my $pi = 4 * atan2(1, 1);
-        my ($al, $be, $ga) = map { $_ * $pi / 180 } @ang;
-        my ($a, $b, $c) = @abc;
-        my @cv = ($c*cos($be), $c*(cos($al) - cos($be)*cos($ga))/sin($ga));
-        push @cv, sqrt($c*$c - $cv[0]**2 - $cv[1]**2);
-        return ([$a, 0, 0], [$b*cos($ga), $b*sin($ga), 0], [@cv]);
-    }
-    die "Error: could not read A/B/C or ABC from &CELL in $file (variables like \${a} are not supported)\n";
+    die "Error: could not read the cell from $file\n" if $? != 0 || @cell != 3;
+    return @cell;
 }
 
 # Inverse of a 3x3 matrix

@@ -6,9 +6,11 @@ import re
 import datetime
 
 class CP2KOutputAnalyzer:
-    def __init__(self, output_file):
+    def __init__(self, output_file, plot=None):
         # Initialize the CP2KOutputAnalyzer object with the output file
+        # plot: True (--plot), False (--no-plot) or None (ask if stdin is a terminal)
         self.output_file = output_file
+        self.plot = plot
         self.static_parameters = {}  # Dictionary to store static parameters from the output file
         self.parsed_data = {}  # Dictionary to store parsed data from the output file
         self.optimization_step_data = []  # List to store optimization step data
@@ -18,7 +20,9 @@ class CP2KOutputAnalyzer:
         print("""
 **********************************************
       *** The format of the script: ***
-python3 cp2k-output-analyse.py OUTPUT_FILE.out
+python3 cp2k-output-analyse.py OUTPUT_FILE.out [--plot | --no-plot]
+  (without --plot/--no-plot you are asked, if
+   the script runs in a terminal)
 **********************************************
         """)
 
@@ -341,24 +345,35 @@ python3 cp2k-output-analyse.py OUTPUT_FILE.out
             print(f"Error: File '{self.output_file}' not found.")
             sys.exit(1)
         print("=======================================")
-        print("Do you want to plot cycle vs. energy?\n(y/n)")
-        plot_choice = input()
-        if plot_choice.lower() == "y":
+        if self.plot is None:
+            # no --plot/--no-plot: ask, but only when someone can answer (stdin is a terminal)
+            if sys.stdin.isatty():
+                print("Do you want to plot cycle vs. energy?\n(y/n)")
+                self.plot = input().lower() == "y"
+            else:
+                self.plot = False
+        if self.plot:
             self.plot_step_vs_energy()
         print("Done!")
         print("=======================================")
 
 if __name__ == "__main__":
     # Entry point of the script
-    if len(sys.argv) < 2:
+    plot = None
+    if "--plot" in sys.argv[1:]:
+        plot = True
+    if "--no-plot" in sys.argv[1:]:
+        plot = False
+    files = [a for a in sys.argv[1:] if a not in ("--plot", "--no-plot")]
+    if len(files) < 1:
         # If no output file is provided, print an error and usage instructions
         print("\033[31mERROR:\033[0m Missing file operand! Please identify the name of OUTPUT_FILE.out")
         CP2KOutputAnalyzer('').print_usage()
         sys.exit(1)
 
     # Extract the output file from command line arguments
-    output_file = sys.argv[1]
+    output_file = files[0]
 
     # Create an instance of CP2KOutputAnalyzer and run the analysis
-    analyzer = CP2KOutputAnalyzer(output_file)
+    analyzer = CP2KOutputAnalyzer(output_file, plot=plot)
     analyzer.analyze()

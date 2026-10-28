@@ -23,16 +23,10 @@ cp2k_version_choice (){
 
 }
 
-# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
-detect_scheduler() {
-	if command -v qsub >/dev/null 2>&1; then
-		echo "pbs"
-	elif command -v sbatch >/dev/null 2>&1; then
-		echo "slurm"
-	else
-		echo "none"
-	fi
-}
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
 editor_check () {
         if [ $EDITOR_CHOICE -eq '1' ] ; then
@@ -72,14 +66,7 @@ editor_check
 echo -e "Do you want to submit the script?\n1 YES\n2 NO"
 read SUBMIT_CHOICE
 if [ $SUBMIT_CHOICE -eq '1' ] ; then
-	case "$(detect_scheduler)" in
-		pbs)
-			SUBMIT_CMD="qsub"
-			[ -x /opt/pbs/default/bin/qsub ] && SUBMIT_CMD="/opt/pbs/default/bin/qsub"
-			;;
-		slurm) SUBMIT_CMD="sbatch" ;;
-		*) echo -e "\033[31mERROR:\033[0m Neither qsub nor sbatch found, cannot submit $SUB_SCRIPT"; exit 1 ;;
-	esac
+	SUBMIT_CMD=$(submit_cmd) || { echo -e "\033[31mERROR:\033[0m Neither qsub nor sbatch found, cannot submit $SUB_SCRIPT"; exit 1; }
 	echo -e "\n========================================\nSubmission in process, please wait...\n..."
 	echo "${SUBMIT_CMD##*/} $SUB_SCRIPT"
 	$SUBMIT_CMD $SUB_SCRIPT && echo -e "\nJob submitted!\n========================================"

@@ -1,4 +1,20 @@
 #!/bin/bash
+# Hubbard U scan: prepare the U_<value> directories (placeholder LT_U in the template input),
+# submit the jobs, and tabulate the lattice constants (from the restart files) against U.
+#
+# Usage: cp2k_U_conv.sh [-v "values"] [-i cp2k.inp] [-O cp2k.out] [-r cp2k-1.restart] [-j NBT]
+#                       [prepare|submit|analyse]
+#   -v VALUES   U values to scan (default: $(seq 1 0.5 6))
+#   -i FILE     template input containing LT_U (default cp2k.inp)
+#   -O FILE     CP2K output file name in each directory (default cp2k.out)
+#   -r FILE     restart file with the optimised cell (default cp2k-1.restart)
+#   -j FILE     job script copied into and submitted in each directory (default NBT)
+#   Without prepare|submit|analyse (or 1|2|3) a menu is shown.
+
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
 ##Input parameters
 input_file=cp2k.inp   #Template file of present system      
@@ -8,6 +24,19 @@ run_script=NBT
 plot_file="U.txt"                                                            
 
 U_values=$(seq 1 0.5 6) #Considered U range and step
+
+while getopts ":v:i:O:r:j:h" opt; do
+    case "$opt" in
+        v) U_values="$OPTARG" ;;
+        i) input_file="$OPTARG" ;;
+        O) output_file="$OPTARG" ;;
+        r) restart_file="$OPTARG" ;;
+        j) run_script="$OPTARG" ;;
+        h) show_help; exit 0 ;;
+        *) echo "Unknown option or missing value: -$OPTARG (see -h)"; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
 
 prepare_input_files() {
     for ii in $U_values ; do
@@ -31,65 +60,28 @@ prepare_input_files() {
     done
 }
 
-# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
-detect_scheduler() {
-    if command -v qsub >/dev/null 2>&1; then
-        echo "pbs"
-    elif command -v sbatch >/dev/null 2>&1; then
-        echo "slurm"
-    else
-        echo "none"
-    fi
-}
-
 run_input_files() {
-    case "$(detect_scheduler)" in
-        pbs)
-            submit_cmd="qsub"
-            [ -x /opt/pbs/default/bin/qsub ] && submit_cmd="/opt/pbs/default/bin/qsub"
-            ;;
-        slurm) submit_cmd="sbatch" ;;
-        *) echo "Neither qsub nor sbatch found, cannot submit jobs."; exit 1 ;;
-    esac
+    submit_command=$(submit_cmd) || { echo "Neither qsub nor sbatch found, cannot submit jobs."; exit 1; }
     for ii in $U_values ; do
         work_dir=U_${ii}
         if [ ! -d $work_dir ] ; then
             echo "$work_dir not exist!"
             exit
         else
-            cd $work_dir
-            $submit_cmd $run_script
+            submit_in_dir $work_dir $run_script "$submit_command"
             echo "$work_dir: job submitted!"
-            cd ..
         fi
     done
 }
 
-# Print the lengths |A| |B| |C| (in Angstrom) of the &CELL section of a CP2K input/restart file.
-# Handles A/B/C vectors (any orientation) and ABC; prints an error message instead if neither is found.
+# Print the lengths |A| |B| |C| (in Angstrom) of the &CELL section of a CP2K input/restart file
+# (A/B/C vectors in any orientation, or ABC; via cp2k_inp.py). Prints an error message and fails otherwise.
 cell_lengths() {
-    awk '
-        { line = $0; sub(/[#!].*$/, "", line); gsub(/^[ \t]+|[ \t\r]+$/, "", line); gsub(/[ \t]+/, " ", line)
-          if (line == "") next
-          u = toupper(line)
-          if (!inside) { if (u == "&CELL") inside = 1; next }
-          if (u ~ /^&END/) { if (depth == 0) exit; depth--; next }
-          if (u ~ /^&/) { depth++; next }           # skip nested sections such as &CELL_REF
-          if (depth > 0) next
-          n = split(line, w, " "); k = toupper(w[1]); i = 2; scale = 1
-          if (w[2] ~ /^\[/) { if (tolower(w[2]) == "[bohr]") scale = 0.529177210903; i = 3 }
-          if (k == "A" || k == "B" || k == "C") len[k] = scale * sqrt(w[i]^2 + w[i+1]^2 + w[i+2]^2)
-          if (k == "ABC") { len["A"] = scale * w[i]; len["B"] = scale * w[i+1]; len["C"] = scale * w[i+2] }
-        }
-        END {
-          if (!inside) { print "ERROR: no &CELL section"; exit }
-          if (len["A"] == "" || len["B"] == "" || len["C"] == "") { print "ERROR: no A/B/C or ABC lines in &CELL"; exit }
-          if (len["A"] + 0 <= 0 || len["B"] + 0 <= 0 || len["C"] + 0 <= 0) { print "ERROR: zero or non-numeric cell length (variables like ${a} are not supported)"; exit }
-          printf "%.10f %.10f %.10f\n", len["A"], len["B"], len["C"]
-        }' "$1"
+    "$cp2k_inp" get-cell "$1" --format lengths 2>&1
 }
 
 analysis() {
+    cp2k_inp=$(find_script cp2k_inp.py) || exit 1
     echo "# U vs lattice parameters" > $plot_file
     echo "# Date: $(date)" >> $plot_file
     echo "# PWD: $PWD" >> $plot_file
@@ -99,13 +91,11 @@ analysis() {
         check_job=$(grep "PROGRAM ENDED AT" $work_dir/$output_file)
         ref_cell=""; new_cell=""
         if [ -n "$check_job" ]; then
-            ref_cell=$(cell_lengths $work_dir/$input_file)
-            new_cell=$(cell_lengths $work_dir/$restart_file 2>/dev/null)
-            for cell_check in "$work_dir/$input_file:$ref_cell" "$work_dir/$restart_file:$new_cell"; do
-                case "${cell_check#*:}" in
-                    ""|ERROR*) echo "Warning: ${cell_check%%:*}: ${cell_check#*:}" >&2; check_job="" ;;
-                esac
-            done
+            if ! ref_cell=$(cell_lengths $work_dir/$input_file); then
+                echo "Warning: $work_dir/$input_file: $ref_cell" >&2; check_job=""
+            elif ! new_cell=$(cell_lengths $work_dir/$restart_file); then
+                echo "Warning: $work_dir/$restart_file: $new_cell" >&2; check_job=""
+            fi
         fi
         if [ -n "$check_job" ]; then
             # Lattice constants are the lengths of the cell vectors (correct for non-orthogonal cells too)
@@ -125,20 +115,23 @@ analysis() {
 }
 
 
-echo "Choose an option:"
-echo "1. Prepare input files"
-echo "2. Run input files"
-echo "3. Analysis"
-read -p "Enter your choice (1/2/3): " choice
+choice="${1:-}"
+if [ -z "$choice" ] ; then
+    echo "Choose an option:"
+    echo "1. Prepare input files"
+    echo "2. Run input files"
+    echo "3. Analysis"
+    read -p "Enter your choice (1/2/3): " choice
+fi
 
 case $choice in
-    1)
+    1|prepare)
         prepare_input_files
         ;;
-    2)
+    2|submit|run)
         run_input_files
         ;;
-    3)
+    3|analyse|analyze|analysis)
         analysis
         ;;
     *)

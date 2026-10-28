@@ -6,16 +6,10 @@ BASE_MEM=190
 JOBNAME="cp2k.inp"
 RUNSCRIPT_NAME="cp2k_runscript"
 
-# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
-detect_scheduler() {
-    if command -v qsub >/dev/null 2>&1; then
-        echo "pbs"
-    elif command -v sbatch >/dev/null 2>&1; then
-        echo "slurm"
-    else
-        echo "none"
-    fi
-}
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
 # Loop to create folders for different numbers of nodes
 for NODE in {1..10}; do
@@ -54,16 +48,10 @@ fi
 # Ask if the user wants to submit the jobs
 read -p "Do you want to submit the jobs? (y/n): " SUBMIT_JOBS
 if [ "$SUBMIT_JOBS" == "y" ]; then
-    case "$(detect_scheduler)" in
-        pbs)   SUBMIT_CMD="qsub" ;;
-        slurm) SUBMIT_CMD="sbatch" ;;
-        *)     echo "Neither qsub nor sbatch found, jobs not submitted."; exit 1 ;;
-    esac
+    SUBMIT_CMD=$(submit_cmd) || { echo "Neither qsub nor sbatch found, jobs not submitted."; exit 1; }
     for NODE in {1..10}; do
         FOLDER_NAME="node_${NODE}"
-        cd $FOLDER_NAME
-        $SUBMIT_CMD $RUNSCRIPT_NAME
-        cd ..
+        submit_in_dir $FOLDER_NAME $RUNSCRIPT_NAME "$SUBMIT_CMD"
         echo "Submitted job in folder $FOLDER_NAME"
     done
 fi

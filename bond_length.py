@@ -14,64 +14,28 @@ bond_length.py
 
 import argparse
 import os
+import shutil
 import sys
 import numpy as np
 from ase.io import read
-from ase.neighborlist import NeighborList, natural_cutoffs
+
+# 共享模块 cp2k_xyz.py：先找本脚本所在目录，再找 PATH
+_lib_dir = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(os.path.join(_lib_dir, 'cp2k_xyz.py')) and shutil.which('cp2k_xyz.py'):
+    _lib_dir = os.path.dirname(os.path.realpath(shutil.which('cp2k_xyz.py')))
+sys.path.insert(0, _lib_dir)
+try:
+    import cp2k_xyz
+except ImportError:
+    sys.exit('[错误] 找不到 cp2k_xyz.py（请放在本脚本同一目录或 PATH 中）')
 
 
 def calc_bond_lengths(atoms, elem1, elem2, scale=1.0):
     """
-    计算 atoms 中 elem1-elem2 之间所有键长（考虑周期性边界条件）。
-    scale: 对 natural_cutoffs 的缩放因子，默认 1.0
+    计算 atoms 中 elem1-elem2 之间所有键长（考虑周期性边界条件），返回 [(i, j, d), ...]。
+    scale: 对 natural_cutoffs 的缩放因子，默认 1.0（共享实现见 cp2k_xyz.bond_lengths）
     """
-    cutoffs = natural_cutoffs(atoms, mult=scale)
-    # skin=0.0: the default skin (0.3 Å) would also return pairs up to 0.3 Å beyond the cutoff
-    nl = NeighborList(cutoffs, skin=0.0, self_interaction=False, bothways=True)
-    nl.update(atoms)
-
-    symbols = atoms.get_chemical_symbols()
-    same_elem = (elem1 == elem2)
-    seen = set()
-    bond_lengths = []
-
-    for i, sym_i in enumerate(symbols):
-        if sym_i not in (elem1, elem2):
-            continue
-
-        indices, offsets = nl.get_neighbors(i)
-
-        for j, offset in zip(indices, offsets):
-            sym_j = symbols[j]
-
-            # 判断是否为目标元素对
-            if same_elem:
-                if sym_i != elem1 or sym_j != elem1:
-                    continue
-            else:
-                if {sym_i, sym_j} != {elem1, elem2}:
-                    continue
-
-            # 归一化键对标识，正确处理跨边界自镜像（i==j）
-            if i == j:
-                neg = tuple(-o for o in offset)
-                key = (i, j, min(tuple(offset), neg))
-            elif i < j:
-                key = (i, j, tuple(offset))
-            else:
-                key = (j, i, tuple(-o for o in offset))
-
-            if key in seen:
-                continue
-            seen.add(key)
-
-            # 考虑 PBC 的实际距离
-            pos_i = atoms.positions[i]
-            pos_j = atoms.positions[j] + np.array(offset) @ atoms.cell
-            dist = np.linalg.norm(pos_j - pos_i)
-            bond_lengths.append((i, j, dist))
-
-    return bond_lengths
+    return cp2k_xyz.bond_lengths(atoms, elem1, elem2, scale=scale)
 
 
 def print_text_histogram(distances, elem1, elem2, bin_width=0.1, bar_max_width=40):

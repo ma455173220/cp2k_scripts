@@ -1,9 +1,13 @@
 #!/bin/bash
+# Switch a CP2K input to OT / DIAGONALIZATION (replaces &SCF) or to GEO_OPT / CELL_OPT / MD
+# (RUN_TYPE and &MOTION), using the templates of Multiwfn. The input is edited in place (backup: .bak).
+#
+# Usage: diag2ot_geo2cell2md.sh target_file [ot|diag|geo|cell|md]   (or 1-5; no choice: menu)
 
 # Function to display error message and usage instructions
 display_error_and_exit() {
     echo -e "\033[31mERROR:\033[0m $1"
-    echo -e "Format: ./diag2ot_geo2cell2md.sh target_file"
+    echo -e "Format: ./diag2ot_geo2cell2md.sh target_file [ot|diag|geo|cell|md]"
     exit 1
 }
 
@@ -17,54 +21,31 @@ if ! command -v Multiwfn >/dev/null 2>&1; then
     display_error_and_exit "Multiwfn not found in PATH (load or install it first)."
 fi
 
-# Print the line numbers of the lines that consist of the given marker (e.g. "&SCF" or "&END SCF").
-# Case-insensitive; whitespace and trailing "#"/"!" comments are ignored; commented-out lines never match.
-marker_lines() {
-    awk -v m="$2" '
-        { line = $0
-          sub(/[#!].*$/, "", line)
-          gsub(/^[ \t]+|[ \t\r]+$/, "", line)
-          gsub(/[ \t]+/, " ", line)
-          if (toupper(line) == toupper(m)) print NR }' "$1"
-}
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
+cp2k_inp=$(find_script cp2k_inp.py) || exit 1
 
-# Exactly one line number for a marker, otherwise an error message (and non-zero status)
-unique_marker_line() {
-    local lines count
-    lines=$(marker_lines "$1" "$2")
-    count=$(printf '%s' "$lines" | grep -c .)
-    if [ "$count" -ne 1 ]; then
-        echo -e "\033[31mERROR:\033[0m '$2' found $count times in '$1' (expected exactly once); '$1' was not changed." >&2
-        return 1
-    fi
-    echo "$lines"
-}
-
-# Function to extract and replace sections
+# Function to extract and replace sections: the section (DFT/SCF for &SCF, the top-level &MOTION) of the
+# source file replaces the same section of the target file. cp2k_inp.py parses the input properly
+# (case-insensitive, comments, bare &END, nesting) and fails without changing anything if the section
+# is missing or not unique in either file.
 function extract_and_replace_section {
     local section="$1"
     local start_marker="$2"
     local end_marker="$3"
     local src_file="$4"
     local target_file="$5"
-    local src_start_line src_end_line target_start_line target_end_line
+    local path
 
-    src_start_line=$(unique_marker_line "$src_file" "$start_marker") || return 1
-    src_end_line=$(unique_marker_line "$src_file" "$end_marker") || return 1
-    target_start_line=$(unique_marker_line "$target_file" "$start_marker") || return 1
-    target_end_line=$(unique_marker_line "$target_file" "$end_marker") || return 1
-
-    # Extracting the section from the source file
-    sed -n "${src_start_line},${src_end_line}p" "$src_file" > tmp_${section}
-
-    # Replacing the existing section of the target file with the new one
-    awk -v s="$target_start_line" -v e="$target_end_line" -v f="tmp_${section}" '
-        NR == s { while ((getline l < f) > 0) print l }
-        NR >= s && NR <= e { next }
-        { print }' "$target_file" > "${target_file}.new" && mv "${target_file}.new" "$target_file"
-
-    # Removing the temporary file
-    rm "tmp_${section}"
+    case "$start_marker" in
+        "&SCF")    path="DFT/SCF" ;;
+        "&MOTION") path="/MOTION" ;;
+        *)         path="${start_marker#&}" ;;
+    esac
+    "$cp2k_inp" replace-section "$src_file" "$target_file" "$path" -o "${target_file}.new" \
+        && mv "${target_file}.new" "$target_file"
 }
 
 # Set a function
@@ -140,14 +121,24 @@ function Multiwfn_run (){
 }
 
 
-# Select function type
-echo "Please select a function type:"
-echo "1. OT"
-echo "2. DIAGONALIZATION"
-echo "3. GEO_OPT"
-echo "4. CELL_OPT"
-echo "5. MD"
+# Select function type (second argument, or menu)
+case "$(echo "${2:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|ot) function_choice=1 ;;
+    2|diag|diagonalization) function_choice=2 ;;
+    3|geo|geo_opt) function_choice=3 ;;
+    4|cell|cell_opt) function_choice=4 ;;
+    5|md) function_choice=5 ;;
+    "")
+        echo "Please select a function type:"
+        echo "1. OT"
+        echo "2. DIAGONALIZATION"
+        echo "3. GEO_OPT"
+        echo "4. CELL_OPT"
+        echo "5. MD"
 
-read function_choice
+        read function_choice
+        ;;
+    *) display_error_and_exit "Unknown function type '$2' (ot, diag, geo, cell or md)." ;;
+esac
 
 Multiwfn_run $1

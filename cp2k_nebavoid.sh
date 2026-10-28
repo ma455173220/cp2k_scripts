@@ -1,4 +1,13 @@
 #!/bin/bash
+# NEB images with VASPKIT: 1) every numbered xyz image -> <NN>/POSCAR (cell from cp2k.inp);
+# 2) after processing the POSCARs with atomkit, convert them back and merge all images into traj.xyz.
+#
+# Usage: cp2k_nebavoid.sh [1|xyz2poscar | 2|poscar2xyz]     (no argument: menu)
+
+# Shared helpers (cp2k_common.sh: next to this script, else in PATH)
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
 # Function to get lattice parameters
 get_lattice_parameters() {
@@ -7,32 +16,14 @@ get_lattice_parameters() {
     exit 1
   fi
 
-  # Read the A/B/C vectors (or ABC [+ ALPHA_BETA_GAMMA]) of the &CELL section only:
-  # "&CELL" must be the whole line (case-insensitive), so &CELL_OPT / &CELL_REF do not match;
-  # commented-out lines and nested sections (e.g. &CELL_REF) are skipped.
-  lattice_parameter=$(awk '
-    { line = $0; sub(/[#!].*$/, "", line); gsub(/^[ \t]+|[ \t\r]+$/, "", line)
-      if (line == "") next
-      u = toupper(line); gsub(/[ \t]+/, " ", u)
-      if (!inside) { if (u == "&CELL") inside = 1; next }
-      if (u ~ /^&END/) { if (depth == 0) { done = 1; exit } depth--; next }
-      if (u ~ /^&/) { depth++; next }
-      if (depth > 0) next
-      n = split(line, w, /[ \t]+/); k = toupper(w[1])
-      if (k == "A" || k == "B" || k == "C") { v[k] = ""; for (i = 2; i <= n; i++) v[k] = v[k] " " w[i] }
-      if (k == "ABC") { a = w[2]; b = w[3]; c = w[4] }
-      if (k == "ALPHA_BETA_GAMMA") { al = w[2]; be = w[3]; ga = w[4] }
-    }
-    END {
-      if (v["A"] != "" && v["B"] != "" && v["C"] != "") { print v["A"]; print v["B"]; print v["C"]; exit }
-      if (a != "") {
-        if (al == "") { al = 90; be = 90; ga = 90 }
-        d = atan2(0, -1) / 180; al *= d; be *= d; ga *= d
-        cx = c * cos(be); cy = c * (cos(al) - cos(be) * cos(ga)) / sin(ga)
-        printf " %.10f 0 0\n %.10f %.10f 0\n %.10f %.10f %.10f\n", a, b * cos(ga), b * sin(ga), cx, cy, sqrt(c * c - cx * cx - cy * cy)
-      }
-    }' cp2k.inp)
-
+  # Cell vectors of the &CELL section (A/B/C or ABC [+ ALPHA_BETA_GAMMA], units, comments, nested
+  # &CELL_REF and &CELL_OPT are all handled by cp2k_inp.py), one " x y z" line per vector
+  local cp2k_inp
+  cp2k_inp=$(find_script cp2k_inp.py) || exit 1
+  if ! lattice_parameter=$("$cp2k_inp" get-cell cp2k.inp --format vectors --fmt .16g | sed 's/^/ /'); then
+    echo "Error: Could not extract lattice parameters (A/B/C or ABC) from the &CELL section of 'cp2k.inp'."
+    exit 1
+  fi
   if [ "$(printf '%s\n' "$lattice_parameter" | grep -c .)" -ne 3 ]; then
     echo "Error: Could not extract lattice parameters (A/B/C or ABC) from the &CELL section of 'cp2k.inp'."
     exit 1
@@ -193,19 +184,25 @@ merge_to_traj() {
   echo "All .xyz files with numeric prefixes have been merged into traj.xyz."
 }
 
-# Choose functionality
-echo "Choose a function to run:"
-echo "1. Convert .xyz to POSCAR"
-echo "2. Convert POSCAR to .xyz"
-read -p "Enter your choice (1 or 2): " choice
+# Choose functionality (argument, or menu)
+choice="${1:-}"
+if [ -z "$choice" ]; then
+  echo "Choose a function to run:"
+  echo "1. Convert .xyz to POSCAR"
+  echo "2. Convert POSCAR to .xyz"
+  read -p "Enter your choice (1 or 2): " choice
+fi
 
 # Validate the choice and call the appropriate function
 case $choice in
-  1)
+  1|xyz2poscar)
     get_lattice_parameters && xyz_to_POSCAR
     ;;
-  2)
+  2|poscar2xyz)
     POSCAR_to_xyz && merge_to_traj
+    ;;
+  -h|--help)
+    show_help
     ;;
   *)
     echo "Invalid choice. Please enter 1 or 2."

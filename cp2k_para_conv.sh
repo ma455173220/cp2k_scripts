@@ -22,6 +22,9 @@ cp2k_para_conv.sh
 
 参数：
   -p  （必填）要测试的参数名，如 CUTOFF、REL_CUTOFF、EPS_SCF
+      也可写成 段落路径/参数名，只修改该段落中的参数（需要 cp2k_inp.py），如
+      MGRID/CUTOFF、FORCE_EVAL/DFT/SCF/EPS_SCF、OUTER_SCF/EPS_SCF；
+      该段落中没有此参数时自动加在段落的 &END 之前；目录名只用参数名
       多值参数（k点等）可用冒号替代空格，如 "MONKHORST-PACK:2:2:2"
   -v  （必填）测试值列表，空格分隔，引号括起；"none" 表示注释掉该参数
   -i  （可选）CP2K 输入文件路径（默认：当前目录唯一的 .inp 文件）
@@ -55,15 +58,10 @@ sanitize_name() {
     | sed 's/[^a-zA-Z0-9._-]/_/g'
 }
 
-detect_scheduler() {
-    if command -v qsub >/dev/null 2>&1; then
-        echo "pbs"
-    elif command -v sbatch >/dev/null 2>&1; then
-        echo "slurm"
-    else
-        echo "none"
-    fi
-}
+# 公共函数（cp2k_common.sh：先找本脚本所在目录，再找 PATH）
+_lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"
+[ -f "$_lib" ] || _lib="$(command -v cp2k_common.sh)" || { echo "Error: cp2k_common.sh not found (keep it next to this script or in PATH)" >&2; exit 1; }
+source "$_lib"
 
 while getopts ":p:v:i:j:f:cah" opt; do
     case "$opt" in
@@ -251,9 +249,33 @@ if modified:
 PYEOF
 }
 
+# -p SECTION/PATH/KEY：交给 cp2k_inp.py 修改指定段落中的参数
+SECTION_PATH=""
+KEY_NAME="$PARAM"
+if [[ "$PARAM" == */* ]]; then
+    SECTION_PATH="${PARAM%/*}"
+    KEY_NAME="${PARAM##*/}"
+    [[ -z "$SECTION_PATH" || -z "$KEY_NAME" ]] && error_usage "参数路径格式应为 段落/.../参数名：$PARAM"
+    CP2K_INP_PY="$(find_script cp2k_inp.py)" || error_usage "-p 使用段落路径时需要 cp2k_inp.py（放在本脚本同一目录或 PATH 中）"
+fi
+
+modify_inp_section() {
+    local src="$1" dst="$2" val="$3" msg rc=0
+    msg="$("$CP2K_INP_PY" set-key "$src" "$SECTION_PATH" "$KEY_NAME" "${val//:/ }" -o "$dst" 2>&1)" || rc=$?
+    printf '  %s\n' "$msg" >&2
+    return "$rc"
+}
+
 # 生成任何目录之前，先确认输入文件中存在该参数（激活或被注释的行均可）
-param_matches="$(modify_inp "$INP_FILE" /dev/null "$PARAM" "check" check)" \
-    || error_usage "检查 $INP_FILE 中的参数 $PARAM 失败"
+if [[ -n "$SECTION_PATH" ]]; then
+    param_matches="$("$CP2K_INP_PY" set-key "$INP_FILE" "$SECTION_PATH" "$KEY_NAME" x --check)" \
+        || error_usage "$INP_FILE 中找不到唯一的段落 $SECTION_PATH（见上面的错误信息）"
+    [[ "$param_matches" -eq 0 ]] && printf '  [提示] 段落 %s 中没有 %s，将加在该段落的 &END 之前\n' "$SECTION_PATH" "$KEY_NAME"
+    param_matches=1
+else
+    param_matches="$(modify_inp "$INP_FILE" /dev/null "$PARAM" "check" check)" \
+        || error_usage "检查 $INP_FILE 中的参数 $PARAM 失败"
+fi
 if [[ "$param_matches" -eq 0 ]]; then
     if [[ "$ALLOW_APPEND" -eq 1 ]]; then
         printf '  [警告] %s 中找不到参数 %s，将按 -a 追加到文件末尾（&END FORCE_EVAL 之后通常不合法，请检查）\n' "$INP_FILE" "$PARAM" >&2
@@ -266,7 +288,7 @@ GENERATED_DIRS=()
 
 for val in "${VALUES[@]}"; do
     val_lc="$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')"
-    safe_param="$(sanitize_name "$PARAM")"
+    safe_param="$(sanitize_name "$KEY_NAME")"
     safe_val="$(sanitize_name "$val")"
 
     if [[ "$val_lc" == "none" ]]; then
@@ -291,7 +313,13 @@ for val in "${VALUES[@]}"; do
     mkdir -p "$dir_name"
 
     target_inp="${dir_name}/${INP_BASENAME}"
-    if ! modify_output=$(modify_inp "$INP_FILE" "$target_inp" "$PARAM" "$val" 2>&1); then
+    if [[ -n "$SECTION_PATH" ]]; then
+        modify_ok=0; modify_output=$(modify_inp_section "$INP_FILE" "$target_inp" "$val" 2>&1) || modify_ok=1
+    else
+        modify_ok=0; modify_output=$(modify_inp "$INP_FILE" "$target_inp" "$PARAM" "$val" 2>&1) || modify_ok=1
+    fi
+    if [[ "$modify_ok" -ne 0 ]]; then
+        printf '%s\n' "$modify_output" >&2
         printf '  [错误] 修改 .inp 失败，跳过：%s\n' "$dir_name" >&2
         continue
     fi
@@ -342,15 +370,15 @@ printf '\n'
 
 SCHEDULER="$(detect_scheduler)"
 case "$SCHEDULER" in
-    pbs)   SUBMIT_CMD="qsub";   SCHED_NAME="PBS" ;;
-    slurm) SUBMIT_CMD="sbatch"; SCHED_NAME="Slurm" ;;
+    pbs)   SUBMIT_CMD="$(submit_cmd)"; SCHED_NAME="PBS" ;;
+    slurm) SUBMIT_CMD="$(submit_cmd)"; SCHED_NAME="Slurm" ;;
     none)
         printf '  [警告] 未检测到 qsub 或 sbatch，无法提交任务\n' >&2
         exit 0
         ;;
 esac
 
-printf '  检测到调度系统：%s（%s）\n\n' "$SCHED_NAME" "$SUBMIT_CMD"
+printf '  检测到调度系统：%s（%s）\n\n' "$SCHED_NAME" "${SUBMIT_CMD##*/}"
 
 if [[ ! -t 0 ]]; then
     printf '  [非交互模式] 跳过提交，请手动进入各目录提交任务\n'
@@ -372,7 +400,7 @@ case "$answer" in
                 ((submit_fail++)) || true
                 continue
             fi
-            if job_id=$(cd "$d" && "$SUBMIT_CMD" "$(basename "$JOB_SCRIPT")" 2>&1); then
+            if job_id=$(submit_in_dir "$d" "$(basename "$JOB_SCRIPT")" "$SUBMIT_CMD" 2>&1); then
                 printf '  [已提交] %s  →  %s\n' "$d" "$job_id"
                 ((submit_ok++)) || true
             else
