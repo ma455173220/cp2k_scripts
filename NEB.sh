@@ -1,3 +1,4 @@
+#!/bin/bash
 #Generate final NEB trajectory from xyz file of every NEB point, and export corresponding energies
 #Written by Tian Lu (sobereva@sina.com)
 #
@@ -6,7 +7,6 @@
 #Output [Project name]_traj.xyz and [Project name]_ene.txt
 #e.g. NEB.sh conf 10
 #
-#!/bin/bash
 
 rm -f $1_traj.xyz
 if (($2<10)) ; then

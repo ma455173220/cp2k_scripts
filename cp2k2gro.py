@@ -89,7 +89,11 @@ class CP2K2GRO(object):
         if options.gro_name == None:
             self.gro_name="system.gro"  
         else:
-            self.gro_name = options.gro_name.rstrip(".gro") + ".gro"
+            # remove a trailing ".gro" suffix (rstrip would strip characters)
+            gro_base = options.gro_name
+            if gro_base.endswith(".gro"):
+                gro_base = gro_base[:-len(".gro")]
+            self.gro_name = gro_base + ".gro"
                         
         if os.path.exists(self.gro_name):
             os.remove(self.gro_name)
@@ -135,10 +139,10 @@ class CP2K2GRO(object):
         tobe_writen+="[ bonds ]\n; i  j  func\n\n[ system ]\n; Name\nMymolecule0\n\n"
         tobe_writen+="[ molecules ]\n; Compound    #mols\nmolecule0    1\n"
         
-        with open(self.gro_name.rstrip(".gro") + ".top",'w') as writer:
+        with open(self.gro_name[:-len(".gro")] + ".top",'w') as writer:
             writer.write(tobe_writen)
             
-        with open(self.gro_name.rstrip(".gro") + ".mdp",'w') as writer:
+        with open(self.gro_name[:-len(".gro")] + ".mdp",'w') as writer:
           
             writer.write("; minim.mdp - used as input into grompp to generate em.tpr\n")
             writer.write("integrator  = steep     ; Algorithm (steep = steepest descent minimization)\n")

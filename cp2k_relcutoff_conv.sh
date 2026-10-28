@@ -1,13 +1,13 @@
 #!/bin/bash
 
 ##Input parameters
-submit_cmd="sbatch"  # "qsub" or "sbatch"
+submit_cmd=""  # "qsub" or "sbatch"; leave empty to auto-detect (PBS -> qsub, Slurm -> sbatch)
 input_file=cp2k.inp   #Template file of present system      
 output_file=cp2k.out                                        
 run_script=conv_test
 plot_file="REL_CUTOFF.txt"                                                            
 
-cutoff=800   #REL_CUTOFF parameter (Ry)                  
+cutoff=800   #CUTOFF parameter (Ry)                  
 rel_cutoffs=$(seq 10 10 80) #Considered REL_CUTOFF range and step
 
 prepare_input_files() {
@@ -25,7 +25,25 @@ prepare_input_files() {
     done
 }
 
+# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
+detect_scheduler() {
+    if command -v qsub >/dev/null 2>&1; then
+        echo "pbs"
+    elif command -v sbatch >/dev/null 2>&1; then
+        echo "slurm"
+    else
+        echo "none"
+    fi
+}
+
 run_input_files() {
+    if [ -z "$submit_cmd" ] ; then
+        case "$(detect_scheduler)" in
+            pbs)   submit_cmd="qsub" ;;
+            slurm) submit_cmd="sbatch" ;;
+            *) echo "Neither qsub nor sbatch found, cannot submit jobs."; exit 1 ;;
+        esac
+    fi
     for ii in $rel_cutoffs ; do
         work_dir=rel_cutoff_${ii}Ry
         if [ ! -d $work_dir ] ; then

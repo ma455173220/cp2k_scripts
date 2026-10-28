@@ -18,7 +18,7 @@ my $orig_geo;
 my $line;
 my $num;#number of atoms.
 my ($i,$j,$k);
-my ($mode1,$mode2,$mode3);
+my @block_modes;
 my @array;
 my @modes;
 
@@ -80,11 +80,10 @@ $line=<IN>;
 while ($line=<IN>) {
     chomp ($line);
     $line=~s/^\s+|\s+$//g;
-    if ($line=~m/VIB\|\s+(\d+)\s+(\d+)\s+(\d+)/) {
-        $mode1=$1-1;
-        $mode2=$2-1;
-        $mode3=$3-1;
-        printf( "Reading mode %d %d %d. \n",$mode1+1,$mode2+1,$mode3+1);
+    # Mode header line: up to 3 mode numbers (the last block may hold only 1 or 2).
+    if ($line=~m/^VIB\|\s+(\d+)(?:\s+(\d+))?(?:\s+(\d+))?$/) {
+        @block_modes = map { $_-1 } grep { defined } ($1,$2,$3);
+        printf( "Reading mode %s. \n", join(" ", map { $_+1 } @block_modes));
         for (1..5) {
             $line=<IN>;
         }
@@ -92,19 +91,13 @@ while ($line=<IN>) {
             chomp ($line);
             $line=~s/^\s+|\s+$//g;
             @array=split(/\s+/,$line);
-            if (11 == @array) {
-                #Dirty but simple.
-                $modes[$mode1]->[$array[0]-1][0] = $array[2];
-                $modes[$mode1]->[$array[0]-1][1] = $array[3];
-                $modes[$mode1]->[$array[0]-1][2] = $array[4];
-                                
-                $modes[$mode2]->[$array[0]-1][0] = $array[5];
-                $modes[$mode2]->[$array[0]-1][1] = $array[6];
-                $modes[$mode2]->[$array[0]-1][2] = $array[7];
-                                
-                $modes[$mode3]->[$array[0]-1][0] = $array[8];
-                $modes[$mode3]->[$array[0]-1][1] = $array[9]; 
-                $modes[$mode3]->[$array[0]-1][2] = $array[10];
+            if (2+3*@block_modes == @array && $array[0]=~/^\d+$/) {
+                #Dirty but simple: atom index, element, then X Y Z per mode.
+                for $k (0..$#block_modes) {
+                    $modes[$block_modes[$k]]->[$array[0]-1][0] = $array[2+3*$k];
+                    $modes[$block_modes[$k]]->[$array[0]-1][1] = $array[3+3*$k];
+                    $modes[$block_modes[$k]]->[$array[0]-1][2] = $array[4+3*$k];
+                }
             }elsif (0 == @array) {
                 last MODES;
             } 

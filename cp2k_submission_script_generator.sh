@@ -23,9 +23,20 @@ cp2k_version_choice (){
 
 }
 
+# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
+detect_scheduler() {
+	if command -v qsub >/dev/null 2>&1; then
+		echo "pbs"
+	elif command -v sbatch >/dev/null 2>&1; then
+		echo "slurm"
+	else
+		echo "none"
+	fi
+}
+
 editor_check () {
         if [ $EDITOR_CHOICE -eq '1' ] ; then
-                /home/561/hm1876/.local/bin/vim $PWD/$SUB_SCRIPT
+                ${EDITOR:-vim} $PWD/$SUB_SCRIPT
         elif [ $EDITOR_CHOICE -eq '2' ] ; then
                 nano $PWD/$SUB_SCRIPT
         fi
@@ -61,9 +72,17 @@ editor_check
 echo -e "Do you want to submit the script?\n1 YES\n2 NO"
 read SUBMIT_CHOICE
 if [ $SUBMIT_CHOICE -eq '1' ] ; then
+	case "$(detect_scheduler)" in
+		pbs)
+			SUBMIT_CMD="qsub"
+			[ -x /opt/pbs/default/bin/qsub ] && SUBMIT_CMD="/opt/pbs/default/bin/qsub"
+			;;
+		slurm) SUBMIT_CMD="sbatch" ;;
+		*) echo -e "\033[31mERROR:\033[0m Neither qsub nor sbatch found, cannot submit $SUB_SCRIPT"; exit 1 ;;
+	esac
 	echo -e "\n========================================\nSubmission in process, please wait...\n..."
-	echo "qsub $SUB_SCRIPT"
-	/opt/pbs/default/bin/qsub $SUB_SCRIPT && echo -e "\nJob submitted!\n========================================"
+	echo "${SUBMIT_CMD##*/} $SUB_SCRIPT"
+	$SUBMIT_CMD $SUB_SCRIPT && echo -e "\nJob submitted!\n========================================"
 else
 	echo -e "\n========================================\nDone!\n========================================"
 fi

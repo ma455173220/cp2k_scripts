@@ -15,6 +15,14 @@ get_lattice_parameters() {
   fi
 }
 
+# Numbered images are stored in two-digit, zero-based directories (00, 01, ...).
+# xyz2neb.pl numbers the images from 0 (0.xyz ... N.xyz); image sets numbered from 1 are shifted by 1.
+if ls *.xyz 2>/dev/null | grep -qE '^0+\.xyz$'; then
+  image_offset=0
+else
+  image_offset=1
+fi
+
 # Function to process .xyz files and generate POSCAR
 xyz_to_POSCAR() {
   echo "Starting conversion from .xyz to POSCAR files..."
@@ -31,8 +39,8 @@ xyz_to_POSCAR() {
 
     # Check if the prefix is a number
     if [[ $prefix =~ ^[0-9]+$ ]]; then
-      # Convert the prefix to a two-digit number and subtract 1
-      new_prefix=$(printf "%02d" $((10#$prefix - 1)))
+      # Convert the prefix to a two-digit, zero-based image number
+      new_prefix=$(printf "%02d" $((10#$prefix - image_offset)))
     else
       # Use the prefix as is if it's not a number
       new_prefix="$prefix"
@@ -91,8 +99,8 @@ POSCAR_to_xyz() {
 
     # Check if the prefix is a number
     if [[ $prefix =~ ^[0-9]+$ ]]; then
-      # Convert the prefix to a two-digit number and subtract 1
-      new_prefix=$(printf "%02d" $((10#$prefix - 1)))
+      # Convert the prefix to a two-digit, zero-based image number
+      new_prefix=$(printf "%02d" $((10#$prefix - image_offset)))
     else
       # Skip this iteration if prefix is not a number
       echo "Warning: '$file' does not have a numeric prefix and will be skipped."
@@ -131,6 +139,7 @@ merge_to_traj() {
   echo "Merging .xyz files with numeric prefixes into traj.xyz..."
   # Ensure the output file is empty
   > traj.xyz
+  image_dirs=()
 
   # Loop through all .xyz files in numerical order and append to traj.xyz
   for file in $(ls *.xyz | sort -V); do
@@ -140,6 +149,7 @@ merge_to_traj() {
     # Check if the prefix is a number
     if [[ $prefix =~ ^[0-9]+$ ]]; then
       cat "$file" >> traj.xyz
+      image_dirs+=("$(printf "%02d" $((10#$prefix - image_offset)))")
       # echo "" >> traj.xyz  # Add a newline between files for clarity
     else
       echo "Warning: '$file' does not have a numeric prefix and will be skipped."
@@ -147,8 +157,10 @@ merge_to_traj() {
     fi
   done
 
-  # Remove the directories
-  rm -rf */
+  # Remove the numbered image directories created by this script (not other subdirectories)
+  for dir in "${image_dirs[@]}"; do
+    rm -rf -- "$dir"
+  done
 
   echo "All .xyz files with numeric prefixes have been merged into traj.xyz."
 }

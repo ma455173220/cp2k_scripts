@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import json
+import os
 import re
+# NOTE: only GTH_POTENTIALS, NLCC_POTENTIALS and ECP_POTENTIALS are actually parsed below;
+# ALL_POTENTIAL, POTENTIAL and POTENTIAL_UZH are accepted here but not implemented yet.
 SUPPORTED_PP = ['ALL_POTENTIAL', 'POTENTIAL', 'POTENTIAL_UZH', 'GTH_POTENTIALS', 'NLCC_POTENTIALS', 'ECP_POTENTIALS']
 def generateCp2kValenceElectronsInformation(
     pseudoPotentialFile = 'GTH_POTENTIALS',
-    pseudoPotentialPath = '/home/561/hm1876/cp2k/data/',
+    pseudoPotentialPath = os.environ.get('CP2K_DATA_DIR', '/home/561/hm1876/cp2k/data/'),
     functional = 'PBE',
     boolSmallCorePseudoPotential = True
 ):
@@ -35,7 +38,7 @@ def generateCp2kValenceElectronsInformation(
         except KeyError:
             numberOfValenceElectronDict[element] = qP
 
-    with open(file = pseudoPotentialPath+pseudoPotentialFile, mode = 'r') as pseudo_f:
+    with open(file = os.path.join(pseudoPotentialPath, pseudoPotentialFile), mode = 'r') as pseudo_f:
         line = 'start'
         while line:
             line = pseudo_f.readline()

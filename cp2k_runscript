@@ -21,7 +21,7 @@ module purge
 module load pbs
 
 HFX_check=`grep "&HF" ${JOBNAME}.inp | grep -v "#"`
-if [ $HFX_check ] ; then 
+if [ "$HFX_check" ] ; then 
 	sed -i "/@SET LT_STORAGE_LOCATION/d" ${JOBNAME}.inp
 	sed -i "1i "@SET\ LT_STORAGE_LOCATION\ $PBS_JOBFS"" ${JOBNAME}.inp
 	sed -i "/\<STORAGE_LOCATION\>/d" ${JOBNAME}.inp
@@ -30,7 +30,9 @@ if [ $HFX_check ] ; then
 	sed -i "/EPS_STORAGE_SCALING/a\MAX_DISK_SPACE 8000" ${JOBNAME}.inp
 fi
 
-source ~/CP2K_JOB_PARAMETERS
+if [ -f ~/CP2K_JOB_PARAMETERS ] ; then
+	source ~/CP2K_JOB_PARAMETERS
+fi
 
 ### Intel-mpi ###
 module load intel-mpi/2021.4.0

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Set the list of filenames to delete, common large VASP files
+# Set the list of filenames to delete, common large CP2K files (wavefunctions and cube files)
 LARGE_FILES=(
     "*.wfn" "*.cub" "*.cube"
 )

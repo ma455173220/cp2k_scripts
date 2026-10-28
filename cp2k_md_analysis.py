@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 
 def plot_convergence(filepath):
     # Load the data file into a DataFrame
     try:
-        data = pd.read_csv(filepath, sep='\s+', comment='#')
+        data = pd.read_csv(filepath, sep=r'\s+', comment='#', header=None)
     except Exception as e:
         print(f"Error reading the file: {e}")
         return
@@ -48,5 +49,6 @@ def plot_convergence(filepath):
     plt.show()
 
 if __name__ == "__main__":
-    filepath = "./cp2k-1.ener"  # Update to the actual file path if needed
+    # Optional argument: path to the .ener file (default ./cp2k-1.ener)
+    filepath = sys.argv[1] if len(sys.argv) > 1 else "./cp2k-1.ener"
     plot_convergence(filepath)

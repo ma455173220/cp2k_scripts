@@ -6,6 +6,22 @@
 
 keyword="1 B   EFG Tensor"
 
+# Locate a helper script: next to this script, then in PATH, then the old Gadi location
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+find_script() {
+    if [ -x "$SCRIPT_DIR/$1" ]; then
+        echo "$SCRIPT_DIR/$1"
+    elif command -v "$1" >/dev/null 2>&1; then
+        command -v "$1"
+    elif [ -x "$2" ]; then
+        echo "$2"
+    else
+        echo "Error: cannot find $1 (searched $SCRIPT_DIR, PATH and $2)" >&2
+        return 1
+    fi
+}
+eig_py=$(find_script eig.py /home/561/hm1876/cp2k/scripts/eig.py) || exit 1
+
 # Get a list of directories that start with "strain_" in the current directory
 directories=$(ls -d strain_*)
 
@@ -43,7 +59,7 @@ for dir in $directories; do
 
     # Extract the g-factor
     cd $dir
-    gfactor=$(/home/561/hm1876/cp2k/scripts/eig.py | tail -n 1)
+    gfactor=$("$eig_py" | tail -n 1)
     gfactor=$(echo $gfactor | tr -d '[]')
     cd ..
     # Write the information to the output file

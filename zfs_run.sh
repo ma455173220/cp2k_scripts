@@ -2,6 +2,24 @@
 
 dir_num="1 2 3 4 5 6 7 8 9 10 12 15 20"
 
+# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
+detect_scheduler() {
+	if command -v qsub >/dev/null 2>&1; then
+		echo "pbs"
+	elif command -v sbatch >/dev/null 2>&1; then
+		echo "slurm"
+	else
+		echo "none"
+	fi
+}
+
+case "$(detect_scheduler)" in
+	pbs)   submit_cmd="qsub" ;;
+	slurm) submit_cmd="sbatch" ;;
+	*)     echo "Warning: neither qsub nor sbatch found, jobs will not be submitted."
+	       submit_cmd="echo Not submitted:" ;;
+esac
+
 for i in $dir_num ; do
 
 	if [ -d HOMO-LUMO-$i ] ; then
@@ -17,6 +35,6 @@ for i in $dir_num ; do
 		ln -s ../cp2k-WFN*${ii}* .
 	done
 	ls -a *2-* | tail -2 | xargs rm
-	qsub o2
+	$submit_cmd o2
         cd ..
 done

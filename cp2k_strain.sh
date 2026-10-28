@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script is used to create directories for different strains and submit jobs to qsub
+# This script is used to create directories for different strains and submit jobs to qsub (PBS) or sbatch (Slurm)
 # The script assumes that cp2k.inp and cp2k_runscript are in the current directory
 # The script also assumes that Multiwfn is installed and the executable is in the PATH
 # The script also assumes that cp2k-restart.sh is in the PATH
@@ -28,6 +28,32 @@ then
 	exit 1
 fi
 
+# Locate a helper script: next to this script, then in PATH, then the old Gadi location
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+function find_script (){
+	if [ -x "$SCRIPT_DIR/$1" ]; then
+		echo "$SCRIPT_DIR/$1"
+	elif command -v "$1" >/dev/null 2>&1; then
+		command -v "$1"
+	elif [ -x "$2" ]; then
+		echo "$2"
+	else
+		echo -e "${ORANGE}Error: cannot find $1 (searched $SCRIPT_DIR, PATH and $2)" >&2
+		return 1
+	fi
+}
+
+# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
+detect_scheduler() {
+	if command -v qsub >/dev/null 2>&1; then
+		echo "pbs"
+	elif command -v sbatch >/dev/null 2>&1; then
+		echo "slurm"
+	else
+		echo "none"
+	fi
+}
+
 # Set a function
 function Multiwfn_run (){
 	# If strain_choice is 1, then Multiwfn_function_choice=0
@@ -49,6 +75,8 @@ function Multiwfn_run (){
 		esac
 	fi
 
+	cp2k_restart=$(find_script cp2k-restart.sh /home/561/hm1876/cp2k/scripts/cp2k-restart.sh) || exit 1
+
 	# Loop through the arguments and create directories
 	for arg in "$@"
 	do
@@ -65,7 +93,7 @@ function Multiwfn_run (){
 		# Run Multiwfn and cp2k-restart.sh
 		echo -e "${GREEN}Running Multiwfn and cp2k-restart.sh for strain $arg..."
 		echo -e "$input_file\ncp2k\ntemp.inp\n-11\n21\n$Multiwfn_function_choice\n$arg\n-10\n0\nq" | Multiwfn 1>>/dev/null
-		/home/561/hm1876/cp2k/scripts/cp2k-restart.sh temp.inp $input_file
+		"$cp2k_restart" temp.inp $input_file
 		rm temp.inp
 		echo -e "${ORANGE}.............................................................................."
 
@@ -81,8 +109,18 @@ function shear_strain (){
 		exit 1
 	fi
 
-	# Gnerate POSCAR for the deform_strain.sh script
-	/home/561/hm1876/cp2k/scripts/cp2k2pos.sh $input_file
+	cp2k2cif=$(find_script cp2k2cif.sh /home/561/hm1876/cp2k/scripts/cp2k2cif.sh) || exit 1
+	deform_strain=$(find_script deform_strain.sh /home/561/hm1876/.local/bin/deform_strain.sh) || exit 1
+	cp2k_restart=$(find_script cp2k-restart.sh /home/561/hm1876/cp2k/scripts/cp2k-restart.sh) || exit 1
+
+	# Gnerate POSCAR for the deform_strain.sh script (cp2k2cif.sh menu option 1 = POSCAR;
+	# cp2k2pos.sh was merged into cp2k2cif.sh)
+	echo 1 | "$cp2k2cif" $input_file 1>>/dev/null
+	if [ ! -s POSCAR ]
+	then
+		echo -e "${ORANGE}Error: POSCAR was not generated from $input_file by $cp2k2cif"
+		exit 1
+	fi
 
 	# Loop through the arguments and create directories
 	for arg in "$@"
@@ -100,9 +138,9 @@ function shear_strain (){
 		# Run deform_strain, Multiwfn, and cp2k-restart.sh
 		echo -e "${GREEN}Running deform_strain, Multiwfn, and cp2k-restart.sh for strain $arg..."
 		new_arg=$(echo "$arg - 1" | bc)
-		/home/561/hm1876/.local/bin/deform_strain.sh $shear_strain_direction $new_arg
+		"$deform_strain" $shear_strain_direction $new_arg
 		echo -e "POSCAR\ncp2k\ntemp.inp\n0\nq" | Multiwfn 1>>/dev/null
-		/home/561/hm1876/cp2k/scripts/cp2k-restart.sh temp.inp $input_file
+		"$cp2k_restart" temp.inp $input_file
 		rm temp.inp
 		echo -e "${ORANGE}.............................................................................."
 
@@ -134,8 +172,14 @@ esac
 echo -e "${ORANGE}.............................................................................."
 read -p "Submit all jobs? [Y/n]" choice
 
-if [[ $choice == "Y" || $choice == "y" ]]; then
-	# Loop through the arguments and submit jobs to qsub
+if [[ -z $choice || $choice == "Y" || $choice == "y" ]]; then
+	case "$(detect_scheduler)" in
+		pbs)   submit_cmd="qsub" ;;
+		slurm) submit_cmd="sbatch" ;;
+		*)     echo -e "${ORANGE}Error: neither qsub nor sbatch found, jobs not submitted."; exit 1 ;;
+	esac
+
+	# Loop through the arguments and submit jobs to qsub/sbatch
 	for arg in "$@"
 	do
 		if [ -d "strain_$arg" ] && [ -n "$(find "strain_$arg" -maxdepth 1 -name '*.out' -print -quit)" ]; then
@@ -146,7 +190,7 @@ if [[ $choice == "Y" || $choice == "y" ]]; then
 
 		cd "strain_$arg"
 		echo -e "${GREEN}Submitting job for strain $arg..."
-		qsub $runscript
+		$submit_cmd $runscript
 		echo -e "${ORANGE}.............................................................................."
 		cd ..
 	done

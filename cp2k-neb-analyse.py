@@ -10,7 +10,6 @@ Usage:
 
 import os
 import sys
-import datetime
 
 
 def print_usage():
@@ -34,7 +33,9 @@ def process_output_file(output_file):
         lines = f.readlines()
         for line in lines:
             line_number += 1
-            if "RMS DISPLACEMENT" in line:
+            if "PROGRAM STARTED AT" in line:
+                starttime = line.split('AT')[-1].strip()
+            elif "RMS DISPLACEMENT" in line:
                 CYCLE_NUMBER += 1
                 top_line_number = line_number - line_minus 
                 bottom_line_number = line_number + line_added

@@ -119,6 +119,15 @@ if [[ ${#EXTRA_FILES[@]} -eq 0 ]]; then
     printf '[提示] 未指定 -f，将复制筛选后的普通文件（共 %d 个）\n' "${#EXTRA_FILES[@]}"
 fi
 
+# -j 指定的提交脚本总是复制到各测试目录（即使使用了 -f）
+if [[ -n "$JOB_SCRIPT" ]]; then
+    job_in_list=0
+    for f in "${EXTRA_FILES[@]}"; do
+        [[ "$(basename "$f")" == "$(basename "$JOB_SCRIPT")" ]] && job_in_list=1
+    done
+    [[ "$job_in_list" -eq 0 ]] && EXTRA_FILES+=("$JOB_SCRIPT")
+fi
+
 for f in "${EXTRA_FILES[@]}"; do
     if [[ ! -f "$f" && ! -L "$f" ]]; then
         printf '  [警告] 找不到文件：%s，将跳过\n' "$f" >&2
@@ -318,13 +327,13 @@ case "$answer" in
         submit_ok=0
         submit_fail=0
         for d in "${GENERATED_DIRS[@]}"; do
-            job_path="${d}/${JOB_SCRIPT}"
+            job_path="${d}/$(basename "$JOB_SCRIPT")"
             if [[ ! -f "$job_path" ]]; then
                 printf '  [跳过] 找不到提交脚本：%s\n' "$job_path" >&2
                 ((submit_fail++)) || true
                 continue
             fi
-            if job_id=$(cd "$d" && "$SUBMIT_CMD" "$JOB_SCRIPT" 2>&1); then
+            if job_id=$(cd "$d" && "$SUBMIT_CMD" "$(basename "$JOB_SCRIPT")" 2>&1); then
                 printf '  [已提交] %s  →  %s\n' "$d" "$job_id"
                 ((submit_ok++)) || true
             else

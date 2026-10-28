@@ -7,10 +7,10 @@ output_file=Si_bulk.out
 plot_file=kpoints_data.ssv
  
  
-echo "# Rel Grid cutoff vs total energy" > $plot_file
+echo "# K-points vs total energy" > $plot_file
 echo "# Date: $(date)" >> $plot_file
 echo "# PWD: $PWD" >> $plot_file
-echo -n "# Rel Cutoff (Ry) | Total Energy (Ha)" >> $plot_file
+echo -n "# K-points | Total Energy (Ha)" >> $plot_file
 grid_header=true
 for ii in $kpoints; do
     work_dir=kpoints_${ii}

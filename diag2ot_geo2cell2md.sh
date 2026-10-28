@@ -3,7 +3,7 @@
 # Function to display error message and usage instructions
 display_error_and_exit() {
     echo -e "\033[31mERROR:\033[0m $1"
-    echo -e "Format: ./diag2ot.sh target_file"
+    echo -e "Format: ./diag2ot_geo2cell2md.sh target_file"
     exit 1
 }
 
@@ -83,6 +83,7 @@ function Multiwfn_run (){
             ;;
         *)
             echo "Invalid choice"
+            exit 1
             ;;
     esac
 

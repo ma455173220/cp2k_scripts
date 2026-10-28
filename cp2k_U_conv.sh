@@ -31,7 +31,26 @@ prepare_input_files() {
     done
 }
 
+# Detect the batch scheduler (PBS on Gadi, Slurm on Setonix)
+detect_scheduler() {
+    if command -v qsub >/dev/null 2>&1; then
+        echo "pbs"
+    elif command -v sbatch >/dev/null 2>&1; then
+        echo "slurm"
+    else
+        echo "none"
+    fi
+}
+
 run_input_files() {
+    case "$(detect_scheduler)" in
+        pbs)
+            submit_cmd="qsub"
+            [ -x /opt/pbs/default/bin/qsub ] && submit_cmd="/opt/pbs/default/bin/qsub"
+            ;;
+        slurm) submit_cmd="sbatch" ;;
+        *) echo "Neither qsub nor sbatch found, cannot submit jobs."; exit 1 ;;
+    esac
     for ii in $U_values ; do
         work_dir=U_${ii}
         if [ ! -d $work_dir ] ; then
@@ -39,7 +58,7 @@ run_input_files() {
             exit
         else
             cd $work_dir
-            /opt/pbs/default/bin/qsub $run_script
+            $submit_cmd $run_script
             echo "$work_dir: job submitted!"
             cd ..
         fi

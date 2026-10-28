@@ -1,3 +1,4 @@
+#!/bin/bash
 #Generate initial guessing trajectory from xyz file of every NEB point, and export corresponding energies
 #Written by Tian Lu (sobereva@sina.com)
 #
@@ -6,7 +7,6 @@
 #Output [Project name]_inittraj.xyz and [Project name]_initene.txt
 #e.g. initNEB.sh conf 10
 #
-#!/bin/bash
 
 rm -f $1_inittraj.xyz
 if (($2<10)) ; then
