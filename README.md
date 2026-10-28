@@ -1,0 +1,76 @@
+# cp2k_scripts
+
+CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
+提交作业的脚本会自动识别调度器：有 `qsub` 就走 PBS，有 `sbatch` 就走 Slurm。
+脚本之间互相调用时，按以下顺序查找被调用的脚本：先找本脚本所在目录，再找 `PATH`，最后才用旧的 `/home/561/hm1876/...` 路径。
+
+> 作业追踪工具 `jobtrack/` 只保留在 `vasp-scripts/jobtrack/`。
+
+## 作业与输入
+
+| 脚本 | 用途 |
+|---|---|
+| `cp2k_runscript` | Gadi PBS 作业模板（会读取 `~/CP2K_JOB_PARAMETERS`，文件存在时才读） |
+| `cp2k_submission_script_generator.sh` | 由 `~/cp2k_runscript` 生成作业脚本，然后编辑或提交 |
+| `cp2k-restart.sh` | `cp2k-restart.sh restart input`：把 restart 里的 CELL/COORD（以及 MD/BAND 等）写回 inp |
+| `diag2ot_geo2cell2md.sh` | 把输入切换成 OT/DIAG/GEO_OPT/CELL_OPT/MD（需要 Multiwfn） |
+| `cp2k_clean.sh` | 递归删除 `*.wfn` / `*.cub*`（⚠️ 也会删 restart 用的 wfn） |
+
+## 收敛测试
+
+| 脚本 | 用途 |
+|---|---|
+| `cp2k_para_conv.sh` | **通用参数扫描**：`-p 参数 -v "取值"`，负责生成目录和提交（`-h` 查看帮助） |
+| `cp2k_cutoff_conv.sh` / `cp2k_relcutoff_conv.sh` | CUTOFF / REL_CUTOFF 测试：生成、提交、汇总成表（CUTOFF.txt / REL_CUTOFF.txt） |
+| `kpoints_analyse.sh` | 汇总 `kpoints_*` 目录 → kpoints_data.ssv |
+| `eps_schwarz_analyse.sh` | 汇总 `eps_schwarz_*` 目录 → cutoff_data.ssv |
+| `cp2k_U_conv.sh` | Hubbard U 扫描：生成、提交、晶格常数随 U 的变化 |
+| `cp2k_node_test.sh` + `cp2k_node_test_time.py` | 节点数扩展性测试：生成并提交，再汇总耗时 |
+
+## 结构优化 / NEB / 频率 / MD 分析
+
+| 脚本 | 用途 |
+|---|---|
+| `cp2k-output-analyse.py` | GEO_OPT / CELL_OPT 输出 → `<out>__data.csv`（含每步 SCF 步数、总耗时），可作图 |
+| `cp2k-neb-analyse.py` | BAND 输出 → csv，可作图 |
+| `xyz2neb.pl` | 初态、末态 xyz 线性插值 → `0.xyz … N.xyz` |
+| `cp2k_nebavoid.sh` | NEB 各 image 用 VASPKIT 处理后再合并成 `traj.xyz` |
+| `NEB.sh` / `initNEB.sh` | 收集各 replica 的最后一帧 / 第一帧 → 轨迹 + 能量 |
+| `cp2kfreq.pl` / `cp2kfreq2mov.pl` | 频率列表 / 每个振动模式的 xyz 动画 |
+| `cp2k_md_analysis.py` | `.ener` 交互作图（`cp2k_md_analysis.py [file]`，默认 `cp2k-1.ener`） |
+| `xyz_extractor.py` | 从大轨迹中抽帧：`-f` 指定帧 / `-s` 步长 / `-r` 随机 |
+
+## 结构转换
+
+| 脚本 | 用途 |
+|---|---|
+| `cp2k2cif.sh` | 用 Multiwfn 转换成 POSCAR/cif/pdb/xyz（菜单选择） |
+| `xyz2cif.sh` | 从轨迹取某一帧，加上 inp 里的晶胞 → cif |
+| `xyz2extxyz.py` | 递归把 xyz 转成 extxyz（从 inp/restart 自动找晶胞） |
+| `cp2k2gro.py` | cp2k 轨迹 → GROMACS `.gro`（可附带 `.top`/`.mdp`） |
+| `bond_length.py` / `bond_length_traj.py` | 键长统计（单个 POSCAR / 多帧轨迹） |
+
+## 电子结构
+
+| 脚本 | 用途 |
+|---|---|
+| `pdos_sigma.py` | `.pdos` 高斯展宽（第三方，GPL） |
+| `cp2k_csv2bandstructure.sh` | `cp2k_bs2csv` 输出拼接成一个 csv |
+| `cp2k_import_nval.py` | 从赝势文件生成"元素 → 价电子数"的 JSON（数据目录取 `$CP2K_DATA_DIR`） |
+
+## 超精细 / g 张量 / ZFS / 应变
+
+| 脚本 | 用途 |
+|---|---|
+| `extract-hyperfine.sh` | 提取指定原子的超精细常数 → iso_A.csv / a-iso_A.csv（单目录或多目录） |
+| `hyperfine_average.py` | 对上面的结果按组求平均（两种输出格式都支持） |
+| `superhyperfine_cp2k.sh` | 按近邻壳层统计 Si 的超精细（Si 专用） |
+| `eig.py` | `cp2k-GTENSOR-1.data` → g 张量本征值 |
+| `zfs_run.sh` / `zfs_analyze.sh` | 零场分裂：生成并提交 / 汇总 |
+| `cp2k_strain.sh` | 生成静水压、单轴、剪切应变并提交（需要 Multiwfn；剪切需要 vasp-scripts 里的 `deform_strain.sh` 在 PATH 中） |
+| `cp2k_strain_restart-ae.sh` | 应变目录续算 |
+| `cp2k_strain_analysis.sh` / `cp2k_strain_g-factor_analysis.sh` | EFG / g 因子随应变的变化 → output.csv（两个脚本写同一个文件名） |
+
+## 外部依赖
+
+Multiwfn、VASPKIT（`atomkit`）、`cp2k_bs2csv`、python3（numpy/pandas/matplotlib/ASE）、perl。
