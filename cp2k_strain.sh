@@ -28,6 +28,13 @@ then
 	exit 1
 fi
 
+# Multiwfn is needed for every strain type
+if ! command -v Multiwfn >/dev/null 2>&1
+then
+	echo -e "${ORANGE}Error: Multiwfn not found in PATH"
+	exit 1
+fi
+
 # Locate a helper script: next to this script, then in PATH, then the old Gadi location
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 function find_script (){
@@ -88,16 +95,24 @@ function Multiwfn_run (){
 
 		mkdir "strain_$arg"
 		cp $input_file $runscript "strain_$arg"
-		cd "strain_$arg"
 
-		# Run Multiwfn and cp2k-restart.sh
+		# Run Multiwfn and cp2k-restart.sh (in a subshell; the directory is removed again if anything fails)
 		echo -e "${GREEN}Running Multiwfn and cp2k-restart.sh for strain $arg..."
-		echo -e "$input_file\ncp2k\ntemp.inp\n-11\n21\n$Multiwfn_function_choice\n$arg\n-10\n0\nq" | Multiwfn 1>>/dev/null
-		"$cp2k_restart" temp.inp $input_file
-		rm temp.inp
+		if ! (
+			cd "strain_$arg" || exit 1
+			echo -e "$input_file\ncp2k\ntemp.inp\n-11\n21\n$Multiwfn_function_choice\n$arg\n-10\n0\nq" | Multiwfn 1>>/dev/null
+			if [ ! -s temp.inp ]; then
+				echo -e "${ORANGE}Error: Multiwfn did not produce temp.inp" >&2
+				exit 1
+			fi
+			"$cp2k_restart" temp.inp $input_file || exit 1
+			rm temp.inp
+		)
+		then
+			echo -e "${ORANGE}Error: strain $arg failed, removing strain_$arg (it will not be submitted)"
+			rm -rf -- "strain_$arg"
+		fi
 		echo -e "${ORANGE}.............................................................................."
-
-		cd ..
 	done
 }
 
@@ -133,18 +148,26 @@ function shear_strain (){
 
 		mkdir "strain_$arg"
 		cp $input_file $runscript POSCAR "strain_$arg"
-		cd "strain_$arg"
 
-		# Run deform_strain, Multiwfn, and cp2k-restart.sh
+		# Run deform_strain, Multiwfn, and cp2k-restart.sh (in a subshell; the directory is removed again if anything fails)
 		echo -e "${GREEN}Running deform_strain, Multiwfn, and cp2k-restart.sh for strain $arg..."
-		new_arg=$(echo "$arg - 1" | bc)
-		"$deform_strain" $shear_strain_direction $new_arg
-		echo -e "POSCAR\ncp2k\ntemp.inp\n0\nq" | Multiwfn 1>>/dev/null
-		"$cp2k_restart" temp.inp $input_file
-		rm temp.inp
+		if ! (
+			cd "strain_$arg" || exit 1
+			new_arg=$(echo "$arg - 1" | bc)
+			"$deform_strain" $shear_strain_direction $new_arg || exit 1
+			echo -e "POSCAR\ncp2k\ntemp.inp\n0\nq" | Multiwfn 1>>/dev/null
+			if [ ! -s temp.inp ]; then
+				echo -e "${ORANGE}Error: Multiwfn did not produce temp.inp" >&2
+				exit 1
+			fi
+			"$cp2k_restart" temp.inp $input_file || exit 1
+			rm temp.inp
+		)
+		then
+			echo -e "${ORANGE}Error: strain $arg failed, removing strain_$arg (it will not be submitted)"
+			rm -rf -- "strain_$arg"
+		fi
 		echo -e "${ORANGE}.............................................................................."
-
-		cd ..
 	done
 }
 
@@ -165,6 +188,7 @@ case $strain_choice in
 		;;
 	*)
 		echo "Invalid option selected."
+		exit 1
 		;;
 esac
 
@@ -188,11 +212,14 @@ if [[ -z $choice || $choice == "Y" || $choice == "y" ]]; then
 			continue
 		fi
 
-		cd "strain_$arg"
+		if [ ! -d "strain_$arg" ]; then
+			echo -e "${ORANGE}Directory strain_$arg does not exist, skipping..."
+			continue
+		fi
+
 		echo -e "${GREEN}Submitting job for strain $arg..."
-		$submit_cmd $runscript
+		( cd "strain_$arg" && $submit_cmd $runscript )
 		echo -e "${ORANGE}.............................................................................."
-		cd ..
 	done
 else
 	echo -e "${ORANGE}Jobs not submitted."

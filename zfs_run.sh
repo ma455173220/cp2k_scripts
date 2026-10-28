@@ -23,7 +23,13 @@ esac
 for i in $dir_num ; do
 
 	if [ -d HOMO-LUMO-$i ] ; then
-		rm -rf HOMO-LUMO-$i
+		read -p "Directory 'HOMO-LUMO-$i' already exists. Delete it and recreate? [y/N] " response
+		if [ "$response" == "Y" ] || [ "$response" == "y" ]; then
+			rm -rf HOMO-LUMO-$i
+		else
+			echo "Skipping 'HOMO-LUMO-$i' (not recreated, not submitted)."
+			continue
+		fi
 	fi
 
 	mkdir HOMO-LUMO-$i

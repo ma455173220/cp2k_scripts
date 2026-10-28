@@ -65,6 +65,30 @@ run_input_files() {
     done
 }
 
+# Print the lengths |A| |B| |C| (in Angstrom) of the &CELL section of a CP2K input/restart file.
+# Handles A/B/C vectors (any orientation) and ABC; prints an error message instead if neither is found.
+cell_lengths() {
+    awk '
+        { line = $0; sub(/[#!].*$/, "", line); gsub(/^[ \t]+|[ \t\r]+$/, "", line); gsub(/[ \t]+/, " ", line)
+          if (line == "") next
+          u = toupper(line)
+          if (!inside) { if (u == "&CELL") inside = 1; next }
+          if (u ~ /^&END/) { if (depth == 0) exit; depth--; next }
+          if (u ~ /^&/) { depth++; next }           # skip nested sections such as &CELL_REF
+          if (depth > 0) next
+          n = split(line, w, " "); k = toupper(w[1]); i = 2; scale = 1
+          if (w[2] ~ /^\[/) { if (tolower(w[2]) == "[bohr]") scale = 0.529177210903; i = 3 }
+          if (k == "A" || k == "B" || k == "C") len[k] = scale * sqrt(w[i]^2 + w[i+1]^2 + w[i+2]^2)
+          if (k == "ABC") { len["A"] = scale * w[i]; len["B"] = scale * w[i+1]; len["C"] = scale * w[i+2] }
+        }
+        END {
+          if (!inside) { print "ERROR: no &CELL section"; exit }
+          if (len["A"] == "" || len["B"] == "" || len["C"] == "") { print "ERROR: no A/B/C or ABC lines in &CELL"; exit }
+          if (len["A"] + 0 <= 0 || len["B"] + 0 <= 0 || len["C"] + 0 <= 0) { print "ERROR: zero or non-numeric cell length (variables like ${a} are not supported)"; exit }
+          printf "%.10f %.10f %.10f\n", len["A"], len["B"], len["C"]
+        }' "$1"
+}
+
 analysis() {
     echo "# U vs lattice parameters" > $plot_file
     echo "# Date: $(date)" >> $plot_file
@@ -73,13 +97,20 @@ analysis() {
     for ii in $U_values ; do
         work_dir=U_${ii}
         check_job=$(grep "PROGRAM ENDED AT" $work_dir/$output_file)
+        ref_cell=""; new_cell=""
         if [ -n "$check_job" ]; then
-            A_ref=$(grep "^\s*A " $work_dir/$input_file | awk '{print $2}' | xargs printf "%.16f")
-            B_ref=$(grep "^\s*B " $work_dir/$input_file | awk '{print $3}' | xargs printf "%.16f")
-            C_ref=$(grep "^\s*C " $work_dir/$input_file | awk '{print $4}' | xargs printf "%.16f")
-            A_value=$(grep "^\s*A " $work_dir/$restart_file | awk '{print $2}' | xargs printf "%.16f")
-            B_value=$(grep "^\s*B " $work_dir/$restart_file | awk '{print $3}' | xargs printf "%.16f")
-            C_value=$(grep "^\s*C " $work_dir/$restart_file | awk '{print $4}' | xargs printf "%.16f")
+            ref_cell=$(cell_lengths $work_dir/$input_file)
+            new_cell=$(cell_lengths $work_dir/$restart_file 2>/dev/null)
+            for cell_check in "$work_dir/$input_file:$ref_cell" "$work_dir/$restart_file:$new_cell"; do
+                case "${cell_check#*:}" in
+                    ""|ERROR*) echo "Warning: ${cell_check%%:*}: ${cell_check#*:}" >&2; check_job="" ;;
+                esac
+            done
+        fi
+        if [ -n "$check_job" ]; then
+            # Lattice constants are the lengths of the cell vectors (correct for non-orthogonal cells too)
+            read A_ref B_ref C_ref <<< "$ref_cell"
+            read A_value B_value C_value <<< "$new_cell"
             delta_A=$(echo "scale=6; (($A_value - $A_ref) / $A_ref) * 100" | bc)
             delta_B=$(echo "scale=6; (($B_value - $B_ref) / $B_ref) * 100" | bc)
             delta_C=$(echo "scale=6; (($C_value - $C_ref) / $C_ref) * 100" | bc)

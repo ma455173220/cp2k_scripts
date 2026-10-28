@@ -7,6 +7,8 @@ VALUES=()
 EXTRA_FILES=()
 JOB_SCRIPT=""
 CLEAN_DIR=0
+ALLOW_APPEND=0
+BIG_FILE_MB=50   # 未指定 -f 时，大于此大小（MB）的文件建立软链接而不是复制
 
 SCRIPT_NAME="$(basename "$0")"
 
@@ -25,7 +27,11 @@ cp2k_para_conv.sh
   -i  （可选）CP2K 输入文件路径（默认：当前目录唯一的 .inp 文件）
   -j  （可选）提交脚本文件名（如 job.sh）；指定后询问是否提交
   -f  （可选）额外要复制的文件，可重复指定多次
+      未指定 -f 时：自动复制当前目录的普通文件，但跳过 wfn/cube/轨迹/ener/restart/
+      备份/作业日志等输出文件，大于 50 MB 的文件建立软链接
   -c  （可选）若目录已存在，先清空再重建（默认：合并写入）
+  -a  （可选）输入文件中找不到该参数时追加到文件末尾（默认：报错退出，不生成任何目录）
+      注意：追加的位置在 &END FORCE_EVAL 之后，通常不是合法的 CP2K 输入，请自行检查
   -h  显示此帮助
 
 示例：
@@ -59,7 +65,7 @@ detect_scheduler() {
     fi
 }
 
-while getopts ":p:v:i:j:f:ch" opt; do
+while getopts ":p:v:i:j:f:cah" opt; do
     case "$opt" in
         p) PARAM="$OPTARG" ;;
         v) read -r -a VALUES <<< "$OPTARG" ;;
@@ -67,6 +73,7 @@ while getopts ":p:v:i:j:f:ch" opt; do
         j) JOB_SCRIPT="$OPTARG" ;;
         f) EXTRA_FILES+=("$OPTARG") ;;
         c) CLEAN_DIR=1 ;;
+        a) ALLOW_APPEND=1 ;;
         h) usage; exit 0 ;;
         :) error_usage "选项 -$OPTARG 需要参数" ;;
         \?) error_usage "未知选项 -$OPTARG" ;;
@@ -109,14 +116,27 @@ while IFS= read -r -d '' lnk; do
 done < <(find . -maxdepth 1 -type l -print0 2>/dev/null)
 
 if [[ ${#EXTRA_FILES[@]} -eq 0 ]]; then
+    SKIPPED_FILES=()
+    BIG_FILES=()
     while IFS= read -r -d '' f; do
         fname="$(basename "$f")"
         case "$fname" in
             "$SCRIPT_NAME"|"$INP_BASENAME"|*.out|*.log|*.bak) continue ;;
+            # CP2K 输出/大文件：波函数、cube、轨迹、能量、restart、备份、PBS/Slurm 作业日志
+            *.wfn|*.wfn.bak-*|*.cube|*.cub|*-pos-*.xyz|*-vel-*|*-frc-*|*.ener|*.restart|*.bak-*|*.o[0-9]*|*.e[0-9]*|slurm-*)
+                SKIPPED_FILES+=("$fname"); continue ;;
         esac
+        # 大文件建立软链接，不复制
+        if [[ -n "$(find "$f" -maxdepth 0 -size +"${BIG_FILE_MB}"M)" ]]; then
+            BIG_FILES+=("$fname")
+            EXTRA_LINKS+=("$fname")
+            continue
+        fi
         EXTRA_FILES+=("$fname")
     done < <(find . -maxdepth 1 -type f -print0)
     printf '[提示] 未指定 -f，将复制筛选后的普通文件（共 %d 个）\n' "${#EXTRA_FILES[@]}"
+    [[ ${#SKIPPED_FILES[@]} -gt 0 ]] && printf '[提示] 跳过输出/大文件（%d 个，需要时请用 -f 指定）：%s\n' "${#SKIPPED_FILES[@]}" "${SKIPPED_FILES[*]}"
+    [[ ${#BIG_FILES[@]} -gt 0 ]] && printf '[提示] 大于 %d MB 的文件改为软链接：%s\n' "$BIG_FILE_MB" "${BIG_FILES[*]}"
 fi
 
 # -j 指定的提交脚本总是复制到各测试目录（即使使用了 -f）
@@ -149,12 +169,13 @@ modify_inp() {
     local dst="$2"
     local param="$3"
     local val="$4"
+    local mode="${5:-modify}"   # modify：生成修改后的文件；check：只输出匹配行数
 
-    python3 - "$src" "$dst" "$param" "$val" <<'PYEOF'
+    python3 - "$src" "$dst" "$param" "$val" "$mode" "$ALLOW_APPEND" <<'PYEOF'
 import sys
 import re
 
-src, dst, param, val = sys.argv[1:]
+src, dst, param, val, mode, allow_append = sys.argv[1:]
 write_val = val.replace(":", " ")
 val_lc = val.lower()
 
@@ -202,15 +223,22 @@ for line in lines:
 
     result.append(line)
 
+if mode == "check":
+    print(match_count)
+    sys.exit(0)
+
 if match_count > 1:
     sys.stderr.write(f"  [警告] 参数 {param} 匹配到 {match_count} 处，仅修改首个匹配\n")
 
 if not modified:
     if val_lc == "none":
         sys.stderr.write(f"  [提示] {param} 未找到激活行，无需注释（文件未修改）\n")
-    else:
+    elif allow_append == "1":
         result.append(f"\n  {param}  {write_val}\n")
-        sys.stderr.write(f"  [追加] 未找到 {param}，已追加到文件末尾\n")
+        sys.stderr.write(f"  [追加] 未找到 {param}，已追加到文件末尾（-a），请检查位置是否合法\n")
+    else:
+        sys.stderr.write(f"  [错误] 未找到 {param}（可用 -a 强制追加）\n")
+        sys.exit(1)
 
 with open(dst, "w", encoding="utf-8") as fh:
     fh.writelines(result)
@@ -222,6 +250,17 @@ if modified:
         sys.stderr.write(f"  已设置 {param}  →  {write_val}\n")
 PYEOF
 }
+
+# 生成任何目录之前，先确认输入文件中存在该参数（激活或被注释的行均可）
+param_matches="$(modify_inp "$INP_FILE" /dev/null "$PARAM" "check" check)" \
+    || error_usage "检查 $INP_FILE 中的参数 $PARAM 失败"
+if [[ "$param_matches" -eq 0 ]]; then
+    if [[ "$ALLOW_APPEND" -eq 1 ]]; then
+        printf '  [警告] %s 中找不到参数 %s，将按 -a 追加到文件末尾（&END FORCE_EVAL 之后通常不合法，请检查）\n' "$INP_FILE" "$PARAM" >&2
+    else
+        error_usage "$INP_FILE 中找不到参数 $PARAM（激活或注释行均没有）；请检查拼写，或用 -a 强制追加到文件末尾"
+    fi
+fi
 
 GENERATED_DIRS=()
 

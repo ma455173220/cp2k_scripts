@@ -12,15 +12,15 @@ CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
 |---|---|
 | `cp2k_runscript` | Gadi PBS 作业模板（会读取 `~/CP2K_JOB_PARAMETERS`，文件存在时才读） |
 | `cp2k_submission_script_generator.sh` | 由 `~/cp2k_runscript` 生成作业脚本，然后编辑或提交 |
-| `cp2k-restart.sh` | `cp2k-restart.sh restart input`：把 restart 里的 CELL/COORD（以及 MD/BAND 等）写回 inp |
+| `cp2k-restart.sh` | `cp2k-restart.sh restart input`：把 restart 里的 CELL/COORD（以及 MD/BAND 等）写回 inp。找不到段或段重复时报错且不改文件；修改前留 `input.bak` |
 | `diag2ot_geo2cell2md.sh` | 把输入切换成 OT/DIAG/GEO_OPT/CELL_OPT/MD（需要 Multiwfn） |
-| `cp2k_clean.sh` | 递归删除 `*.wfn` / `*.cub*`（⚠️ 也会删 restart 用的 wfn） |
+| `cp2k_clean.sh` | 递归删除 `*.wfn` / `*.cub*`（⚠️ 也会删 restart 用的 wfn）。先列出文件和总大小再确认；`-n` 只预览，`-y` 不询问 |
 
 ## 收敛测试
 
 | 脚本 | 用途 |
 |---|---|
-| `cp2k_para_conv.sh` | **通用参数扫描**：`-p 参数 -v "取值"`，负责生成目录和提交（`-h` 查看帮助） |
+| `cp2k_para_conv.sh` | **通用参数扫描**：`-p 参数 -v "取值"`，负责生成目录和提交（`-h` 查看帮助）。输入里没有该关键字时报错（`-a` 允许追加）；不加 `-f` 时不复制 wfn/轨迹等大文件，>50 MB 的文件用软链接 |
 | `cp2k_cutoff_conv.sh` / `cp2k_relcutoff_conv.sh` | CUTOFF / REL_CUTOFF 测试：生成、提交、汇总成表（CUTOFF.txt / REL_CUTOFF.txt） |
 | `kpoints_analyse.sh` | 汇总 `kpoints_*` 目录 → kpoints_data.ssv |
 | `eps_schwarz_analyse.sh` | 汇总 `eps_schwarz_*` 目录 → cutoff_data.ssv |
@@ -33,7 +33,7 @@ CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
 |---|---|
 | `cp2k-output-analyse.py` | GEO_OPT / CELL_OPT 输出 → `<out>__data.csv`（含每步 SCF 步数、总耗时），可作图 |
 | `cp2k-neb-analyse.py` | BAND 输出 → csv，可作图 |
-| `xyz2neb.pl` | 初态、末态 xyz 线性插值 → `0.xyz … N.xyz` |
+| `xyz2neb.pl` | 初态、末态 xyz 线性插值 → `0.xyz … N.xyz`；加 `-c cp2k.inp` 或 `a b c` 时按最小镜像插值（跨周期边界的原子不会穿过晶胞中间） |
 | `cp2k_nebavoid.sh` | NEB 各 image 用 VASPKIT 处理后再合并成 `traj.xyz` |
 | `NEB.sh` / `initNEB.sh` | 收集各 replica 的最后一帧 / 第一帧 → 轨迹 + 能量 |
 | `cp2kfreq.pl` / `cp2kfreq2mov.pl` | 频率列表 / 每个振动模式的 xyz 动画 |

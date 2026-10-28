@@ -11,27 +11,46 @@ echo "# K-points vs total energy" > $plot_file
 echo "# Date: $(date)" >> $plot_file
 echo "# PWD: $PWD" >> $plot_file
 echo -n "# K-points | Total Energy (Ha)" >> $plot_file
-grid_header=true
+# Number of grid levels, taken from the first finished run (for the header)
+ngrids_header=0
 for ii in $kpoints; do
     work_dir=kpoints_${ii}
-    total_energy=$(grep -e 'ENERGY| Total FORCE_EVAL' $work_dir/$output_file | awk -F ' ' '{print $NF}')
-    ngrids=$(grep -e '^[ \t]*QS| Number of grid levels:' $work_dir/$output_file | \
-             awk '{print $6}')
-    if $grid_header ; then
-        for ((igrid=1; igrid <= ngrids; igrid++)) ; do
-            printf " | NG on grid %d" $igrid >> $plot_file
-        done
-	printf " | Time" >> $plot_file
-        printf "\n" >> $plot_file
-        grid_header=false
+    if grep -q "PROGRAM ENDED AT" $work_dir/$output_file 2>/dev/null; then
+        ngrids_header=$(grep -e '^[ \t]*QS| Number of grid levels:' $work_dir/$output_file | head -1 | awk '{print $6}')
+        break
     fi
+done
+for ((igrid=1; igrid <= ngrids_header; igrid++)) ; do
+    printf " | NG on grid %d" $igrid >> $plot_file
+done
+printf " | Time" >> $plot_file
+printf "\n" >> $plot_file
+
+for ii in $kpoints; do
+    work_dir=kpoints_${ii}
+    # Unfinished or missing run: N/A in every column, so the rows stay aligned
+    if ! grep -q "PROGRAM ENDED AT" $work_dir/$output_file 2>/dev/null; then
+        printf "%10.2f  %15s" $ii "N/A" >> $plot_file
+        for ((igrid=1; igrid <= ngrids_header; igrid++)) ; do
+            printf "  %6s" "N/A" >> $plot_file
+        done
+        printf "  %10s\n" "N/A" >> $plot_file
+        echo "Warning: $work_dir/$output_file missing or run not finished" >&2
+        continue
+    fi
+    total_energy=$(grep -e 'ENERGY| Total FORCE_EVAL' $work_dir/$output_file | tail -1 | awk -F ' ' '{print $NF}')
     printf "%10.2f  %15.10f" $ii $total_energy >> $plot_file
-    for ((igrid=1; igrid <= ngrids; igrid++)) ; do
+    for ((igrid=1; igrid <= ngrids_header; igrid++)) ; do
         grid=$(grep -e '^[ \t]*count for grid' $work_dir/$output_file | \
                awk -v igrid=$igrid '(NR == igrid){print $5}')
         printf "  %6d" $grid >> $plot_file
     done
-    computational_time=`grep CP2K $work_dir/$output_file | tail -1 | awk -F ' ' '{print $NF}'`
-    printf "  %10.5f"  $computational_time >> $plot_file
+    # Total wall time: last field of the "CP2K   1  ..." line of the timing report
+    computational_time=$(grep -E '^ CP2K +1 ' $work_dir/$output_file | tail -1 | awk '{print $NF}')
+    if [ -n "$computational_time" ]; then
+        printf "  %10.5f"  $computational_time >> $plot_file
+    else
+        printf "  %10s" "N/A" >> $plot_file
+    fi
     printf "\n" >> $plot_file
 done

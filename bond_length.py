@@ -26,7 +26,8 @@ def calc_bond_lengths(atoms, elem1, elem2, scale=1.0):
     scale: 对 natural_cutoffs 的缩放因子，默认 1.0
     """
     cutoffs = natural_cutoffs(atoms, mult=scale)
-    nl = NeighborList(cutoffs, self_interaction=False, bothways=True)
+    # skin=0.0: the default skin (0.3 Å) would also return pairs up to 0.3 Å beyond the cutoff
+    nl = NeighborList(cutoffs, skin=0.0, self_interaction=False, bothways=True)
     nl.update(atoms)
 
     symbols = atoms.get_chemical_symbols()

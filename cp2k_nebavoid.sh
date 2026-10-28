@@ -2,15 +2,39 @@
 
 # Function to get lattice parameters
 get_lattice_parameters() {
-  if ! grep -q '&CELL' cp2k.inp; then
-    echo "Error: The file 'cp2k.inp' does not contain '&CELL'."
+  if [ ! -f cp2k.inp ]; then
+    echo "Error: The file 'cp2k.inp' does not exist."
     exit 1
   fi
-  
-  lattice_parameter=$(grep -A 3 '&CELL' cp2k.inp | tail -3 | awk '{$1=""; print $0}')
-  
-  if [ -z "$lattice_parameter" ]; then
-    echo "Error: Could not extract lattice parameters."
+
+  # Read the A/B/C vectors (or ABC [+ ALPHA_BETA_GAMMA]) of the &CELL section only:
+  # "&CELL" must be the whole line (case-insensitive), so &CELL_OPT / &CELL_REF do not match;
+  # commented-out lines and nested sections (e.g. &CELL_REF) are skipped.
+  lattice_parameter=$(awk '
+    { line = $0; sub(/[#!].*$/, "", line); gsub(/^[ \t]+|[ \t\r]+$/, "", line)
+      if (line == "") next
+      u = toupper(line); gsub(/[ \t]+/, " ", u)
+      if (!inside) { if (u == "&CELL") inside = 1; next }
+      if (u ~ /^&END/) { if (depth == 0) { done = 1; exit } depth--; next }
+      if (u ~ /^&/) { depth++; next }
+      if (depth > 0) next
+      n = split(line, w, /[ \t]+/); k = toupper(w[1])
+      if (k == "A" || k == "B" || k == "C") { v[k] = ""; for (i = 2; i <= n; i++) v[k] = v[k] " " w[i] }
+      if (k == "ABC") { a = w[2]; b = w[3]; c = w[4] }
+      if (k == "ALPHA_BETA_GAMMA") { al = w[2]; be = w[3]; ga = w[4] }
+    }
+    END {
+      if (v["A"] != "" && v["B"] != "" && v["C"] != "") { print v["A"]; print v["B"]; print v["C"]; exit }
+      if (a != "") {
+        if (al == "") { al = 90; be = 90; ga = 90 }
+        d = atan2(0, -1) / 180; al *= d; be *= d; ga *= d
+        cx = c * cos(be); cy = c * (cos(al) - cos(be) * cos(ga)) / sin(ga)
+        printf " %.10f 0 0\n %.10f %.10f 0\n %.10f %.10f %.10f\n", a, b * cos(ga), b * sin(ga), cx, cy, sqrt(c * c - cx * cx - cy * cy)
+      }
+    }' cp2k.inp)
+
+  if [ "$(printf '%s\n' "$lattice_parameter" | grep -c .)" -ne 3 ]; then
+    echo "Error: Could not extract lattice parameters (A/B/C or ABC) from the &CELL section of 'cp2k.inp'."
     exit 1
   fi
 }
@@ -116,7 +140,11 @@ POSCAR_to_xyz() {
     # Extract the number of atoms from the first line of the .xyz file
     num_atoms=$(head -n 1 "$file")
 
-    cd "$new_prefix" && echo -e "412\n175 POSCAR\n175" | atomkit > /dev/null 2>&1 && mv POSCAR_REV.vasp POSCAR && cd ..
+    # Run atomkit in a subshell, so a failure cannot leave us inside the image directory
+    if ! ( cd "$new_prefix" && echo -e "412\n175 POSCAR\n175" | atomkit > /dev/null 2>&1 && mv POSCAR_REV.vasp POSCAR ); then
+      echo "Error: atomkit failed in directory '$new_prefix'; nothing merged (image directories kept)."
+      exit 1
+    fi
 
     # Extract the first two lines from the ${file} and save it to the temporary file
     tmp_file="${file}.tmp"

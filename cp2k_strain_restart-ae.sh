@@ -54,19 +54,32 @@ detect_scheduler() {
 
 cp2k_restart=$(find_script cp2k-restart.sh /home/561/hm1876/cp2k/scripts/cp2k-restart.sh) || exit 1
 
-# Loop through the arguments and create directories
+# Loop through the arguments and update the existing strain directories
+done_dirs=()
 for arg in "$@"
 do
-	cp $input_file $runscript "strain_$arg"
-	cd "strain_$arg"
+	if [ ! -d "strain_$arg" ]
+	then
+		echo -e "${ORANGE}Warning: directory strain_$arg does not exist, skipping..."
+		continue
+	fi
 
-	# Run cp2k-restart.sh
+	# Run cp2k-restart.sh (in a subshell, so a failure can never leave us in the wrong directory)
 	echo -e "${GREEN}Running cp2k-restart.sh for strain $arg..."
-	"$cp2k_restart" cp2k-1.restart $input_file
+	if ( cp "$input_file" "$runscript" "strain_$arg" && cd "strain_$arg" && "$cp2k_restart" cp2k-1.restart "$input_file" )
+	then
+		done_dirs+=("strain_$arg")
+	else
+		echo -e "${ORANGE}Warning: restart preparation failed in strain_$arg, it will not be submitted."
+	fi
 	echo -e "${ORANGE}.............................................................................."
-
-	cd ..
 done
+
+if [ ${#done_dirs[@]} -eq 0 ]
+then
+	echo -e "${ORANGE}No strain directory was prepared, nothing to submit."
+	exit 1
+fi
 
 # Confirm if submit all jobs
 echo -e "${ORANGE}.............................................................................."
@@ -79,15 +92,12 @@ if [[ -z $choice || $choice == "Y" || $choice == "y" ]]; then
 		*)     echo -e "${ORANGE}Error: neither qsub nor sbatch found, jobs not submitted."; exit 1 ;;
 	esac
 
-	# Loop through the arguments and submit jobs to qsub/sbatch
-	for arg in "$@"
+	# Submit the prepared directories to qsub/sbatch
+	for dir in "${done_dirs[@]}"
 	do
-
-		cd "strain_$arg"
-		echo -e "${GREEN}Submitting job for strain $arg..."
-		$submit_cmd $runscript
+		echo -e "${GREEN}Submitting job for strain ${dir#strain_}..."
+		( cd "$dir" && $submit_cmd "$runscript" )
 		echo -e "${ORANGE}.............................................................................."
-		cd ..
 	done
 else
 	echo -e "${ORANGE}Jobs not submitted."

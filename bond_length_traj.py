@@ -43,7 +43,8 @@ def calc_bond_lengths_pbc(atoms, elem1, elem2, scale: float = 1.0) -> list:
     from ase.neighborlist import NeighborList, natural_cutoffs
 
     cutoffs = natural_cutoffs(atoms, mult=scale)
-    nl = NeighborList(cutoffs, self_interaction=False, bothways=True)
+    # skin=0.0: the default skin (0.3 Å) would also return pairs up to 0.3 Å beyond the cutoff
+    nl = NeighborList(cutoffs, skin=0.0, self_interaction=False, bothways=True)
     nl.update(atoms)
 
     symbols = atoms.get_chemical_symbols()

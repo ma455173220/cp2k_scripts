@@ -16,7 +16,13 @@ prepare_input_files() {
         if [ ! -d $work_dir ] ; then
             mkdir $work_dir
         else 
-            rm -r $work_dir/*
+            read -p "Directory '$work_dir' already exists. Do you want to delete existing files? [y/N] " response
+            if [ "$response" == "Y" ] || [ "$response" == "y" ]; then
+                rm -r $work_dir/*
+            else
+                echo "Skipping '$work_dir' (existing files kept)."
+                continue
+            fi
         fi
         sed -e "s/LT_cutoff/${cutoff}/g" \
             -e "s/LT_rel_cutoff/${ii}/g" \
@@ -64,19 +70,33 @@ analysis() {
     echo "# PWD: $PWD" >> $plot_file
     echo "# CUTOFF = $cutoff" >> $plot_file
     echo -n "#Rel_Cutoff |  Energy (Hartree)  |  delte E " >> $plot_file
-    grid_header=true
+    # Number of grid levels, taken from the first finished run (for the header)
+    ngrids=0
+    for ii in $rel_cutoffs ; do
+        work_dir=rel_cutoff_${ii}Ry
+        if grep -q "PROGRAM ENDED AT" $work_dir/$output_file 2>/dev/null; then
+            ngrids=$(grep -e '^[ \t]*QS| Number of grid levels:' $work_dir/$output_file | head -1 | awk '{print $6}')
+            break
+        fi
+    done
+    for ((igrid=1; igrid <= ngrids; igrid++)) ; do
+        printf " | NG on grid %d" $igrid >> $plot_file
+    done
+    printf "\n" >> $plot_file
     itime=0
     for ii in $rel_cutoffs ; do
         work_dir=rel_cutoff_${ii}Ry
-        total_energy=$(grep -e '^[ \t]*Total energy' $work_dir/$output_file | awk '{print $3}')
-        ngrids=$(grep -e '^[ \t]*QS| Number of grid levels:' $work_dir/$output_file | awk '{print $6}')
-        if $grid_header ; then
+        # Unfinished or missing run: N/A in every column (rows stay aligned; delta E skips this point)
+        if ! grep -q "PROGRAM ENDED AT" $work_dir/$output_file 2>/dev/null; then
+            printf "%10.1f  %18s       N/A   " $ii "N/A" >> $plot_file
             for ((igrid=1; igrid <= ngrids; igrid++)) ; do
-                printf " | NG on grid %d" $igrid >> $plot_file
+                printf "%12s   " "N/A" >> $plot_file
             done
             printf "\n" >> $plot_file
-            grid_header=false
+            echo "Warning: $work_dir/$output_file missing or run not finished" >&2
+            continue
         fi
+        total_energy=$(grep -e '^[ \t]*Total energy' $work_dir/$output_file | tail -1 | awk '{print $3}')
         if (( $itime == 0 )); then
             printf "%10.1f  %18.10f       N/A   " $ii $total_energy >> $plot_file
         else

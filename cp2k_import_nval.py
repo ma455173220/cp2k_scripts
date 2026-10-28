@@ -27,12 +27,14 @@ def generateCp2kValenceElectronsInformation(
     
     def importNumberOfElectrons(element, qP):
         # abbr.: qPresent -> qP
+        # small core (semicore) = MORE valence electrons -> keep the largest q;
+        # big core = fewer valence electrons -> keep the smallest q
         try:
             q = numberOfValenceElectronDict[element]
             if (
-                q > qP and boolSmallCorePseudoPotential
+                qP > q and boolSmallCorePseudoPotential
                 ) or (
-                    q <= qP and not boolSmallCorePseudoPotential
+                    qP < q and not boolSmallCorePseudoPotential
                     ):
                 numberOfValenceElectronDict[element] = qP
         except KeyError:
@@ -79,12 +81,12 @@ def generateCp2kValenceElectronsInformation(
         if pPFCase == 1:
             jsonFileName = pseudoPotentialFile+'-'+functional+'-SmallCore.json'
         else:
-            jsonFileName = pseudoPotentialFile+'-'+'-SmallCore.json'
+            jsonFileName = pseudoPotentialFile+'-SmallCore.json'
     else:
         if pPFCase == 1:
             jsonFileName = pseudoPotentialFile+'-'+functional+'-BigCore.json'
         else:
-            jsonFileName = pseudoPotentialFile+'-'+'-BigCore.json'
+            jsonFileName = pseudoPotentialFile+'-BigCore.json'
     with open(jsonFileName, mode = 'w', encoding = 'utf-8') as json_f:
         json.dump(numberOfValenceElectronDict, json_f, indent = 2)
 
