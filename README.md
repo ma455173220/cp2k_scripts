@@ -20,7 +20,8 @@ CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
 | 脚本 | 用途 |
 |---|---|
 | `cp2k_runscript` | Gadi PBS 作业模板（会读取 `~/CP2K_JOB_PARAMETERS`，文件存在时才读） |
-| `cp2k_submission_script_generator.sh` | 由 `~/cp2k_runscript` 生成作业脚本，然后编辑或提交 |
+| `cp2k_runscript_setonix` | Setonix Slurm 作业模板（pawsey0328，work 分区，每节点 128 核，srun）。⚠️ 先用 `module avail cp2k` 查到模块名，替换 `module load "cp2k/<VERSION>"`；找不到 `cp2k.psmp` 时作业会立即报错退出。HFX 的 STORAGE_LOCATION 放在 `$MYSCRATCH`（Setonix 没有 jobfs） |
+| `cp2k_submission_script_generator.sh` | 由作业模板生成作业脚本，然后编辑或提交。模板：PBS 用 `~/cp2k_runscript`，Slurm 用 `~/cp2k_runscript_setonix`（家目录没有时用本仓库里的同名文件；也可作为第二个参数指定） |
 | `cp2k-restart.sh` | `cp2k-restart.sh restart input`：把 restart 里的 CELL/COORD（以及 MD/BAND 等）写回 inp。找不到段或段重复时报错且不改文件；修改前留 `input.bak` |
 | `diag2ot_geo2cell2md.sh` | `diag2ot_geo2cell2md.sh input [ot\|diag\|geo\|cell\|md]`：把输入切换成 OT/DIAG/GEO_OPT/CELL_OPT/MD（需要 Multiwfn；修改前留 `input.bak`） |
 | `cp2k_clean.sh` | 递归删除 `*.wfn` / `*.cub*`（⚠️ 也会删 restart 用的 wfn）。先列出文件和总大小再确认；`-n` 只预览，`-y` 不询问 |
@@ -33,6 +34,7 @@ CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
 | `cp2k_cutoff_conv.sh` / `cp2k_relcutoff_conv.sh` | CUTOFF / REL_CUTOFF 测试：`[prepare\|submit\|analyse]`，生成、提交、汇总成表（CUTOFF.txt / REL_CUTOFF.txt）。`-v "取值"`、`-f 另一个 cutoff`、`-j 作业脚本`（默认 conv_test）、`-i`/`-O` 输入/输出文件名。`cp2k_relcutoff_conv.sh` = `cp2k_cutoff_conv.sh --rel` |
 | `kpoints_analyse.sh` | 汇总 `kpoints_*` 目录 → kpoints_data.ssv；`-p 前缀 -v "取值" -O 输出文件 -o 表格` 可用于任何 `<前缀>_<值>` 目录 |
 | `eps_schwarz_analyse.sh` | 汇总 `eps_schwarz_*` 目录 → cutoff_data.ssv（= `kpoints_analyse.sh --preset eps_schwarz`） |
+| `cp2k_conv_analyse.py` | **通用收敛分析**：自动找 `cp2k_para_conv.sh` 生成的目录（`generation_info.txt`），或 `-p 'cutoff_*Ry'` / `-p kpoints_` 等；按数值排序，每个目录给出状态（完成/运行中/失败、SCF 不收敛次数）、能量、原子数、每原子能量、相对上一点和参考点（默认最后一点，`--ref first`）的 ΔE（meV/atom）、SCF 步数、耗时，有输出时加压强/带隙/费米能级（`--grids` 加格点数）；标出 "converged at"（`-t` 阈值，默认 1 meV/atom）；表格打印到屏幕并写入 TSV（`-o`），`--plot 图.png` |
 | `cp2k_U_conv.sh` | Hubbard U 扫描：`[prepare\|submit\|analyse]`，生成、提交、晶格常数（晶胞矢量长度）随 U 的变化。`-v "U 值"`、`-j 作业脚本`（默认 NBT） |
 | `cp2k_node_test.sh` + `cp2k_node_test_time.py` | 节点数扩展性测试：生成并提交，再汇总耗时 |
 
@@ -40,8 +42,8 @@ CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
 
 | 脚本 | 用途 |
 |---|---|
-| `cp2k-output-analyse.py` | GEO_OPT / CELL_OPT 输出 → `<out>__data.csv`（含每步 SCF 步数、总耗时）；`--plot` / `--no-plot`（都不写时在终端里询问，非终端不作图） |
-| `cp2k-neb-analyse.py` | BAND 输出 → csv；`--plot` / `--no-plot` 同上 |
+| `cp2k-output-analyse.py` | GEO_OPT / CELL_OPT 输出 → `<out>__data.csv`（含每步 SCF 步数、总耗时；CELL_OPT 在每行末尾另加内压、压强偏差、压强是否收敛、体积、a/b/c；逐行流式读取）；`--plot` / `--no-plot`（都不写时在终端里询问，非终端不作图） |
+| `cp2k-neb-analyse.py` | BAND 输出 → csv；另外读取每步的 `ENERGIES [au] =` / `DISTANCES REP =`：`<out>__band_energies.csv`（每步各 replica 相对 replica 1 的能量，eV）、`<out>__profile.csv`（最后一步的能量曲线），打印正/逆反应能垒和最高 image；`--plot` 还会保存 `<out>__profile.png`（这部分格式按 CP2K 源码写的，请先用真实输出核对） |
 | `xyz2neb.pl` | 初态、末态 xyz 线性插值 → `0.xyz … N.xyz`；加 `-c 文件`（inp/restart/`*-1.cell`/POSCAR）或 `a b c` 时按最小镜像插值（跨周期边界的原子不会穿过晶胞中间） |
 | `cp2k_nebavoid.sh` | `[xyz2poscar\|poscar2xyz]`：NEB 各 image 用 VASPKIT 处理后再合并成 `traj.xyz`（晶胞取自 cp2k.inp） |
 | `NEB.sh` / `initNEB.sh` | 收集各 replica 的最后一帧 / 第一帧 → 轨迹 + 能量（`initNEB.sh` = `NEB.sh --first`） |
@@ -71,7 +73,7 @@ CP2K 计算辅助脚本（Gadi PBS 和 Setonix Slurm 都能用）。
 
 | 脚本 | 用途 |
 |---|---|
-| `extract-hyperfine.sh` | 提取指定原子的超精细常数 → iso_A.csv / a-iso_A.csv（单目录或多目录） |
+| `extract-hyperfine.sh` | 提取指定原子的超精细常数 → iso_A.csv / a-iso_A.csv（单目录或多目录；每个输出文件只完整读一遍） |
 | `hyperfine_average.py` | 对上面的结果按组求平均（两种输出格式都支持） |
 | `superhyperfine_cp2k.sh` | 按近邻壳层统计 Si 的超精细（Si 专用） |
 | `eig.py` | `cp2k-GTENSOR-1.data` → g 张量本征值 |

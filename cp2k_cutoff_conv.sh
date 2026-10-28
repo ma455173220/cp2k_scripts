@@ -11,6 +11,8 @@
 #   -O FILE      CP2K output file name in each directory (default cp2k.out)
 #   -j FILE      job script copied into and submitted in each directory (default conv_test)
 #   Without prepare|submit|analyse (or 1|2|3) a menu is shown.
+#   See also cp2k_conv_analyse.py (meV/atom differences vs a reference, "converged at", TSV, plot):
+#     cp2k_conv_analyse.py -p 'cutoff_*Ry'   (or 'rel_cutoff_*Ry')
 
 # Shared helpers (cp2k_common.sh: next to this script, else in PATH)
 _lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"

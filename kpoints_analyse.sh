@@ -10,6 +10,8 @@
 #   -O OUTFILE     CP2K output file in each directory (Si_bulk.out)
 #   -o TABLE       table to write                 (kpoints_data.ssv | cutoff_data.ssv)
 #   -l LABEL       name of the scanned quantity in the table header (K-points | eps_schwarz)
+#   See also cp2k_conv_analyse.py (meV/atom differences vs a reference, "converged at", TSV, plot):
+#     cp2k_conv_analyse.py -p kpoints_ -O Si_bulk.out
 
 # Shared helpers (cp2k_common.sh: next to this script, else in PATH)
 _lib="$(dirname "$(readlink -f "$0")")/cp2k_common.sh"

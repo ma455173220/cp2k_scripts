@@ -1,8 +1,8 @@
 #!/bin/bash
-#Submission script generator. It can also give warning when the memory exceeds 4 times of the number of cpu.
-#Format of using: script inputfile.d12 SUBMISSION_FILE (PS:the SUBMISSION_FILE is optional)
-
-SCRIPT_DIR=~/cp2k_runscript
+#Submission script generator: copy a job template, set JOBNAME/OUT_NAME, edit it, and optionally submit it.
+#Format of using: script inputfile.inp [TEMPLATE] (the TEMPLATE is optional)
+#Default template: PBS (Gadi): ~/cp2k_runscript, else cp2k_runscript next to this script;
+#                  Slurm (Setonix): ~/cp2k_runscript_setonix, else cp2k_runscript_setonix next to this script.
 
 
 INPUT_FILE=$1
@@ -42,16 +42,38 @@ if [ -z "$1" ] ; then
 	exit 1
 fi
 
+# Job template for the detected scheduler (only needed when no template is given)
+if [ -z "$2" ] ; then
+	case "$(detect_scheduler)" in
+		slurm) template_name="cp2k_runscript_setonix" ;;
+		*)     template_name="cp2k_runscript" ;;
+	esac
+	TEMPLATE=""
+	for candidate in ~/"$template_name" "$(dirname "$(readlink -f "$0")")/$template_name" ; do
+		if [ -f "$candidate" ] ; then
+			TEMPLATE="$candidate"
+			break
+		fi
+	done
+	if [ -z "$TEMPLATE" ] ; then
+		echo -e "\033[31mERROR:\033[0m Job template $template_name not found (looked for ~/$template_name and next to $0)."
+		exit 1
+	fi
+	echo "Template: $TEMPLATE"
+fi
+
 echo -e "Enter the name of the new submission script"
 read SUB_SCRIPT
 if [ -z "$2" ] ; then
-        cp -f $SCRIPT_DIR $PWD/$SUB_SCRIPT
+        cp -f "$TEMPLATE" $PWD/$SUB_SCRIPT || exit 1
 else
-        cp -f $2 $PWD/$SUB_SCRIPT
+        cp -f $2 $PWD/$SUB_SCRIPT || exit 1
 fi
 
 sed -i "s/JOBNAME=\"[^)]*\"/JOBNAME=\"${1%.*}\"/" $SUB_SCRIPT
 sed -i "s/OUT_NAME=\"[^)]*\"/OUT_NAME=\"${1%.*}\"/" $SUB_SCRIPT
+# Slurm templates: also name the job after the input
+sed -i "s/^#SBATCH --job-name=.*/#SBATCH --job-name=${1%.*}/" $SUB_SCRIPT
 
 # echo -e "Which CP2K version are you using?\n1. 2023.1\n2. 2024.1"
 # read CP2K_VERSION_CHOICE
